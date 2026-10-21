@@ -1,0 +1,364 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": 1,
+  "id": "screensaver-agenda",
+  "name": "Screensaver Agenda",
+  "version": "2.1.2",
+  "minAndroidSdk": 26,
+  "entryClass": "agenda.ks.AgendaPlugin",
+  "description": "Shows upcoming events from one or more Home Assistant calendars in a corner of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. The card is visual only: touches pass through and still dismiss the screensaver.",
+  "author": "jtscott",
+  "license": "Apache-2.0",
+  "capabilities": [
+    "overlay",
+    "host.read",
+    "ha"
+  ],
+  "groups": [
+    {
+      "title": "Calendar"
+    },
+    {
+      "title": "Display"
+    },
+    {
+      "title": "Text sizes"
+    },
+    {
+      "title": "Layout"
+    }
+  ],
+  "settings": [
+    {
+      "key": "calendars",
+      "type": "list",
+      "title": "Calendars",
+      "group": "Calendar",
+      "addTitle": "Add calendar",
+      "maxItems": 6,
+      "row": {
+        "title": "calendar",
+        "subtitle": "name",
+        "icon": "icon"
+      },
+      "default": [],
+      "description": "The calendars to show, each with its own name, icon and accent color. Up to 6.",
+      "fields": [
+        {
+          "key": "calendar",
+          "type": "entity",
+          "title": "Calendar",
+          "required": true
+        },
+        {
+          "key": "name",
+          "type": "string",
+          "title": "Name",
+          "default": "",
+          "description": "Shown after each event's time, in this calendar's color. Empty for none."
+        },
+        {
+          "key": "icon",
+          "type": "icon",
+          "title": "Icon",
+          "default": "",
+          "description": "Shown before each event's title, in this calendar's color. Empty for none."
+        },
+        {
+          "key": "color",
+          "type": "color",
+          "title": "Color",
+          "default": "#4FA3E0",
+          "description": "The accent bar, name and icon color."
+        }
+      ]
+    },
+    {
+      "key": "title",
+      "type": "string",
+      "title": "Title",
+      "default": "Family",
+      "group": "Calendar",
+      "description": "Shown above the events. Leave empty for no title."
+    },
+    {
+      "key": "days",
+      "type": "number",
+      "title": "Days ahead",
+      "default": 3,
+      "min": 1,
+      "max": 7,
+      "step": 1,
+      "unit": "days",
+      "group": "Calendar",
+      "description": "Show events starting within this many days, today included."
+    },
+    {
+      "key": "maxEvents",
+      "type": "number",
+      "title": "Maximum events",
+      "default": 5,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "group": "Calendar",
+      "description": "The most events listed at once."
+    },
+    {
+      "key": "showLocation",
+      "type": "boolean",
+      "title": "Show location",
+      "default": false,
+      "group": "Calendar",
+      "description": "Add each event's location on its own line under the time."
+    },
+    {
+      "key": "clock",
+      "type": "select",
+      "title": "Clock format",
+      "default": "12-hour",
+      "options": [
+        "12-hour",
+        "24-hour"
+      ],
+      "group": "Calendar",
+      "description": "How event times are written."
+    },
+    {
+      "key": "dateColumn",
+      "type": "boolean",
+      "title": "Date column",
+      "default": true,
+      "group": "Display",
+      "description": "Weekday, day and month beside each day's events. Off shows a Today, Tomorrow or date heading above them instead."
+    },
+    {
+      "key": "dateAlign",
+      "type": "select",
+      "title": "Date alignment",
+      "default": "Center",
+      "options": [
+        "Left",
+        "Center",
+        "Right"
+      ],
+      "group": "Display",
+      "visibleWhen": {
+        "key": "dateColumn",
+        "equals": true
+      },
+      "description": "How the weekday, day and month line up in the date column."
+    },
+    {
+      "key": "accentBar",
+      "type": "boolean",
+      "title": "Accent bar",
+      "default": true,
+      "group": "Display",
+      "description": "A line beside each event in its calendar's color."
+    },
+    {
+      "key": "endTime",
+      "type": "boolean",
+      "title": "Show end time",
+      "default": true,
+      "group": "Display",
+      "description": "6:30 PM - 8:00 PM instead of 6:30 PM."
+    },
+    {
+      "key": "timeIcon",
+      "type": "boolean",
+      "title": "Clock icon",
+      "default": true,
+      "group": "Display",
+      "description": "An icon before the time, and before the location when it shows."
+    },
+    {
+      "key": "relativeTime",
+      "type": "boolean",
+      "title": "Relative time",
+      "default": true,
+      "group": "Display",
+      "description": "How far off each event is on the right: now, in 5 hours, tomorrow, in 2 days."
+    },
+    {
+      "key": "titleLines",
+      "type": "number",
+      "title": "Title lines",
+      "default": 2,
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "group": "Display",
+      "description": "Long titles wrap to this many lines, then end with an ellipsis."
+    },
+    {
+      "key": "titleSize",
+      "type": "number",
+      "title": "Title",
+      "default": 12,
+      "min": 8,
+      "max": 30,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "The title above the events.",
+      "visibleWhen": {
+        "key": "title",
+        "notEmpty": true
+      }
+    },
+    {
+      "key": "weekdaySize",
+      "type": "number",
+      "title": "Weekday",
+      "default": 15,
+      "min": 8,
+      "max": 30,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "Wed in the date column.",
+      "visibleWhen": {
+        "key": "dateColumn",
+        "equals": true
+      }
+    },
+    {
+      "key": "daySize",
+      "type": "number",
+      "title": "Day number",
+      "default": 34,
+      "min": 12,
+      "max": 60,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "21 in the date column.",
+      "visibleWhen": {
+        "key": "dateColumn",
+        "equals": true
+      }
+    },
+    {
+      "key": "monthSize",
+      "type": "number",
+      "title": "Month",
+      "default": 13,
+      "min": 8,
+      "max": 30,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "OCT in the date column.",
+      "visibleWhen": {
+        "key": "dateColumn",
+        "equals": true
+      }
+    },
+    {
+      "key": "headingSize",
+      "type": "number",
+      "title": "Day heading",
+      "default": 13,
+      "min": 8,
+      "max": 30,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "Today, Tomorrow or the date above each day.",
+      "visibleWhen": {
+        "key": "dateColumn",
+        "equals": false
+      }
+    },
+    {
+      "key": "eventSize",
+      "type": "number",
+      "title": "Event title",
+      "default": 17,
+      "min": 8,
+      "max": 36,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "Each event's name."
+    },
+    {
+      "key": "detailSize",
+      "type": "number",
+      "title": "Time and location",
+      "default": 14,
+      "min": 8,
+      "max": 30,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "The time and location lines. Their icons follow this size."
+    },
+    {
+      "key": "relativeSize",
+      "type": "number",
+      "title": "Relative time",
+      "default": 14,
+      "min": 8,
+      "max": 30,
+      "step": 1,
+      "unit": "sp",
+      "group": "Text sizes",
+      "description": "now, in 5 hours, tomorrow on the right.",
+      "visibleWhen": {
+        "key": "relativeTime",
+        "equals": true
+      }
+    },
+    {
+      "key": "corner",
+      "type": "select",
+      "title": "Corner",
+      "default": "Top left",
+      "options": [
+        "Top left",
+        "Top right",
+        "Bottom left",
+        "Bottom right"
+      ],
+      "group": "Layout",
+      "description": "Where this card sits. It is not a Kiosk Satellite widget, so Settings > Screensaver > Widgets does not place it. Pick a corner those widgets are empty."
+    },
+    {
+      "key": "scale",
+      "type": "number",
+      "title": "Size",
+      "default": 100,
+      "min": 60,
+      "max": 200,
+      "step": 10,
+      "unit": "%",
+      "group": "Layout",
+      "description": "Scales the whole card, text sizes included."
+    },
+    {
+      "key": "opacity",
+      "type": "number",
+      "title": "Background opacity",
+      "default": 55,
+      "min": 0,
+      "max": 90,
+      "step": 5,
+      "unit": "%",
+      "group": "Layout",
+      "description": "How dark the card behind the text is. 0 draws text only."
+    }
+  ],
+  "commands": [
+    {
+      "id": "preview",
+      "title": "Show preview"
+    },
+    {
+      "id": "endPreview",
+      "title": "Hide preview"
+    }
+  ]
+}
