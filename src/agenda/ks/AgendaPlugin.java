@@ -33,6 +33,8 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean saverActive;
     private boolean previewing;
     private boolean noHomeAssistant;
+    /** Whether the 10-minute refresh is subscribed. It runs only while the card can show. */
+    private boolean following;
     /** Why the 10-minute refresh is not running, or null while it is. */
     private String refreshError;
     /** get_events calls still out. KS answers each within 25 seconds, with a timeout at worst. */
@@ -61,22 +63,6 @@ public final class AgendaPlugin implements KioskPlugin {
                 refresh();
             }
         });
-        try {
-            Map<String, Object> trigger = new HashMap<>();
-            trigger.put("platform", "time_pattern");
-            trigger.put("minutes", "/10");
-            Map<String, Object> message = new HashMap<>();
-            message.put("type", "subscribe_trigger");
-            message.put("trigger", trigger);
-            // HA only lets admin users subscribe to triggers, so a refusal must show, not hide.
-            host.haSubscribe(REFRESH, message, (ok, data, error) -> {
-                if (!alive) return;
-                refreshError = ok ? null : error;
-                report();
-            });
-        } catch (UnsupportedOperationException | LinkageError olderHost) {
-            noHomeAssistant = true;
-        }
         fetch();
         refresh();
     }
@@ -125,6 +111,33 @@ public final class AgendaPlugin implements KioskPlugin {
         // KS revokes the host, its subscriptions and the overlay before calling stop.
         alive = false;
         host = null;
+    }
+
+    /** Subscribes to the 10-minute refresh and reads right away when the card can show, and unsubscribes when it can't. */
+    private void follow(boolean visible) {
+        if (visible == following || noHomeAssistant) return;
+        following = visible;
+        try {
+            if (!visible) {
+                host.haUnsubscribe(REFRESH);
+                return;
+            }
+            Map<String, Object> trigger = new HashMap<>();
+            trigger.put("platform", "time_pattern");
+            trigger.put("minutes", "/10");
+            Map<String, Object> message = new HashMap<>();
+            message.put("type", "subscribe_trigger");
+            message.put("trigger", trigger);
+            // HA only lets admin users subscribe to triggers, so a refusal must show, not hide.
+            host.haSubscribe(REFRESH, message, (ok, data, error) -> {
+                if (!alive) return;
+                refreshError = ok ? null : error;
+                report();
+            });
+        } catch (UnsupportedOperationException | LinkageError olderHost) {
+            noHomeAssistant = true;
+        }
+        fetch();
     }
 
     /** One calendar.get_events per calendar, so a calendar too big for KS's 32 KB answer limit only costs itself. */
@@ -219,6 +232,7 @@ public final class AgendaPlugin implements KioskPlugin {
 
     private void refresh() {
         if (!alive || host == null) return;
+        follow(saverActive || previewing);
         boolean wanted = (saverActive || previewing) && !events.isEmpty();
         try {
             if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings))) {
@@ -249,7 +263,7 @@ public final class AgendaPlugin implements KioskPlugin {
         } else if (settings.calendars.isEmpty()) {
             host.status("Add a calendar in Settings.", true);
         } else if (refreshError != null) {
-            host.status("Auto-refresh stopped: " + refreshError + ". Events update only when the app restarts or a calendar setting changes.", true);
+            host.status("Auto-refresh stopped: " + refreshError + ". Events update only when the screensaver starts or a calendar setting changes.", true);
         } else if (!errors.isEmpty()) {
             StringBuilder text = new StringBuilder();
             for (Map.Entry<String, String> error : errors.entrySet()) {

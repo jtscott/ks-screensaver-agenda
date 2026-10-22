@@ -44,9 +44,11 @@ public final class AgendaTest {
         public void haSubscribe(String key, Map<String, Object> message, CommandCallback callback) {
             if (noHa) throw new UnsupportedOperationException("Home Assistant access is unavailable");
             assert "subscribe_trigger".equals(message.get("type"));
-            haSubscriptions.add(key);
+            boolean added = haSubscriptions.add(key);
+            assert added : "Subscription " + key + " is already active";
             subscribed = callback;
         }
+        public void haUnsubscribe(String key) { haSubscriptions.remove(key); }
         public void subscribe(String event) { subscriptions.add(event); }
         public void unsubscribe(String event) { subscriptions.remove(event); }
         public void showOverlay(String key, OverlaySpec spec, OverlayFactory factory) {
@@ -183,12 +185,12 @@ public final class AgendaTest {
         assert sized.eventSize == 22 && sized.daySize == 60 && sized.detailSize == 8;
         assert sized.equals(AgendaSettings.parse(settings("eventSize", 22.0, "daySize", 200, "detailSize", 1))) && !sized.equals(defaults);
 
-        // Lifecycle: it subscribes, reads the calendar, and shows nothing until the screensaver runs.
+        // Lifecycle: it reads the calendar and shows nothing, nor refreshes, until the screensaver runs.
         Host host = new Host();
         AgendaPlugin plugin = new AgendaPlugin();
         plugin.start(host, family());
         assert host.subscriptions.equals(Collections.singleton("screensaver.state")) : host.subscriptions;
-        assert host.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH));
+        assert host.haSubscriptions.isEmpty() : "no refresh while the screensaver is off";
         assert host.haCalls.keySet().equals(Collections.singleton("calendar.family")) && host.status.equals("Reading calendars.");
         Map<String, Object> dentist = event("Dentist", "2099-10-08T15:00:00-06:00", "2099-10-08T16:00:00-06:00");
         host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
@@ -197,6 +199,10 @@ public final class AgendaTest {
         // The initial screensaver read shows the card with the over-the-screensaver, pass-through spec.
         host.pendingRead.onResult(true, true, null);
         assert host.calls.equals(Arrays.asList("show"));
+        // The screensaver starts the 10-minute refresh and reads once right away.
+        assert host.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH)) && host.haCalls.containsKey("calendar.family");
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        assert host.calls.equals(Arrays.asList("show")) : "the same events do not rebuild the card";
         assert host.spec.onTop() && !host.spec.touchable() && !host.spec.closeOnBack() && host.spec.anchor().equals(OverlaySpec.TOP_LEFT);
 
         // The 10-minute trigger reads again. The same events do not rebuild the card; a setting change does.
@@ -210,20 +216,21 @@ public final class AgendaTest {
         assert host.calls.equals(Arrays.asList("show", "show")) && host.spec.anchor().equals(OverlaySpec.TOP_RIGHT);
         assert host.haCalls.isEmpty() : "a layout change must not read the calendars again";
 
-        // Screensaver off hides it; a stale read after a newer event is ignored.
+        // Screensaver off hides it and stops the refresh; a stale read after a newer event is ignored.
         Map<String, Object> idle = settings("active", false);
         plugin.onEvent("ks.screensaver.state", idle);
         assert host.calls.get(host.calls.size() - 1).equals("hide");
+        assert host.haSubscriptions.isEmpty() && host.haCalls.isEmpty();
         int before = host.calls.size();
         host.pendingRead.onResult(true, true, null);
-        assert host.calls.size() == before;
+        assert host.calls.size() == before && host.haSubscriptions.isEmpty();
 
-        // Preview shows it without the screensaver.
+        // Preview shows it without the screensaver, and refreshes like it.
         plugin.execute("preview", new HashMap<String, Object>());
         assert host.calls.get(host.calls.size() - 1).equals("show");
+        assert host.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH));
 
-        // Two calendars: the new list is read once the old read is back, whose answer is dropped, and the removed calendar's events go.
-        plugin.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        // Two calendars: the new list is read once the preview's read is back, whose answer is dropped, and the removed calendar's events go.
         PluginHost.CommandCallback stale = host.haCalls.remove("calendar.family");
         List<Object> two = new ArrayList<>();
         two.add(settings("calendar", "calendar.work", "color", "#FF0000"));
@@ -264,6 +271,8 @@ public final class AgendaTest {
         assert Collections.frequency(host.calls, "show") == shows + 1 : "but it redraws the card";
         plugin.configure(settings("calendars", new ArrayList<Object>()));
         assert host.statusError && host.status.equals("Add a calendar in Settings.") : host.status;
+        plugin.execute("endPreview", new HashMap<String, Object>());
+        assert host.haSubscriptions.isEmpty() : "no refresh once the card is gone";
 
         boolean rejected = false;
         try { plugin.execute("nope", new HashMap<String, Object>()); } catch (IllegalArgumentException expected) { rejected = true; }
@@ -278,7 +287,7 @@ public final class AgendaTest {
         // Before plugins could call Home Assistant it says which version it needs.
         Host noHa = new Host();
         noHa.noHa = true;
-        new AgendaPlugin().start(noHa, new HashMap<String, Object>());
+        new AgendaPlugin().start(noHa, family());
         assert noHa.statusError && noHa.status.contains("2026.10.25") : noHa.status;
 
         // Changing Days ahead with every calendar's read out keeps those answers, then reads each calendar once more.
