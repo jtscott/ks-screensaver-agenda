@@ -327,10 +327,45 @@
         "Right middle",
         "Bottom left",
         "Bottom middle",
-        "Bottom right"
+        "Bottom right",
+        "Custom"
       ],
       "group": "Layout",
-      "description": "Where this card sits. It is not a Kiosk Satellite widget, so Settings > Screensaver > Widgets does not place it. Pick a spot those widgets leave empty."
+      "description": "Where this card sits. It is not a Kiosk Satellite widget, so Settings > Screensaver > Widgets does not place it. Pick a spot those widgets leave empty, or Custom to set its exact position, such as just under the clock."
+    },
+    {
+      "key": "x",
+      "type": "number",
+      "title": "X",
+      "default": 24,
+      "min": 0,
+      "max": 4096,
+      "step": 1,
+      "unit": "dp",
+      "input": "field",
+      "group": "Layout",
+      "visibleWhen": {
+        "key": "corner",
+        "equals": "Custom"
+      },
+      "description": "From the left edge of the screen to the card, in dp. Kiosk Satellite stops the card at the screen edge, so a value too large for the screen leaves it against the far side."
+    },
+    {
+      "key": "y",
+      "type": "number",
+      "title": "Y",
+      "default": 24,
+      "min": 0,
+      "max": 4096,
+      "step": 1,
+      "unit": "dp",
+      "input": "field",
+      "group": "Layout",
+      "visibleWhen": {
+        "key": "corner",
+        "equals": "Custom"
+      },
+      "description": "From the top edge of the screen to the card, in dp. Kiosk Satellite stops the card at the screen edge, so a value too large for the screen leaves it against the far side."
     },
     {
       "key": "scale",

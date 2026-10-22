@@ -74,7 +74,8 @@ All-day events come first. An overnight or multi-day event appears once, under t
 | Title lines | 2 | 1 to 3 |
 | Text sizes | 12 / 15 / 34 / 13 / 13 / 17 / 14 / 14 sp | Title, weekday, day number, month, day heading, event title, time and location, relative time. Each shows only while its text does. Size scales them all |
 | Clock format | 12-hour | |
-| Position | Top left | Where this card sits: a corner, the middle of an edge, or the center. It is not a Kiosk Satellite widget, so **Settings > Screensaver > Widgets** does not place it. Pick a spot those widgets leave empty. |
+| Position | Top left | Where this card sits: a corner, the middle of an edge, the center, or **Custom**. It is not a Kiosk Satellite widget, so **Settings > Screensaver > Widgets** does not place it. Pick a spot those widgets leave empty |
+| X, Y | 24, 24 dp | Shown for **Custom**: the card's distance from the left and top edges of the screen, such as just under the clock widget. Kiosk Satellite keeps the card on screen. Typed number fields on Kiosk Satellite 2026.10.35 or later, sliders before |
 | Size | 100% | |
 | Background opacity | 55% | 0 draws text only |
 

@@ -35,6 +35,9 @@ final class AgendaSettings {
     final boolean showLocation;
     final boolean clock24;
     final String anchor;
+    /** Position "Custom": the card's exact place, x and y dp from the top left of the screen. */
+    final boolean custom;
+    final int x, y;
     final int scale;
     final int opacity;
     final boolean dateColumn;
@@ -59,6 +62,9 @@ final class AgendaSettings {
         showLocation = flag(values.get("showLocation"), false);
         clock24 = "24-hour".equals(values.get("clock"));
         anchor = anchor(values.get("corner"));
+        custom = "Custom".equals(values.get("corner"));
+        x = number(values.get("x"), 24, 0, 4096);
+        y = number(values.get("y"), 24, 0, 4096);
         scale = number(values.get("scale"), 100, 60, 200);
         opacity = number(values.get("opacity"), 55, 0, 90);
         dateColumn = flag(values.get("dateColumn"), true);
@@ -121,7 +127,7 @@ final class AgendaSettings {
             case "Bottom left": return OverlaySpec.BOTTOM_LEFT;
             case "Bottom middle": return OverlaySpec.BOTTOM;
             case "Bottom right": return OverlaySpec.BOTTOM_RIGHT;
-            default: return OverlaySpec.TOP_LEFT;
+            default: return OverlaySpec.TOP_LEFT; // Custom too, where x and y place the card from the top left
         }
     }
 

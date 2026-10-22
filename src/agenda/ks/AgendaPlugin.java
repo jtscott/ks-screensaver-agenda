@@ -255,7 +255,16 @@ public final class AgendaPlugin implements KioskPlugin {
 
     static OverlaySpec spec(AgendaSettings settings) {
         // Over the screensaver like the voice overlay, visual only so a tap still wakes the kiosk, and Back leaves it alone.
-        return OverlaySpec.at(settings.anchor).inset(Math.round(24 * settings.scale / 100f)).onTop(true).touchable(false).closeOnBack(false);
+        OverlaySpec spec = OverlaySpec.at(settings.anchor).onTop(true).touchable(false).closeOnBack(false);
+        if (settings.custom) {
+            try {
+                // From the top left with no inset, the offset is the card's position.
+                return spec.offset(settings.x, settings.y);
+            } catch (LinkageError olderHost) {
+                // KS versions before overlay offsets: Custom falls back to the top left.
+            }
+        }
+        return spec.inset(Math.round(24 * settings.scale / 100f));
     }
 
     private void refresh() {

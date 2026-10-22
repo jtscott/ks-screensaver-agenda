@@ -169,11 +169,18 @@ public final class AgendaTest {
             {"Top left", OverlaySpec.TOP_LEFT}, {"Top middle", OverlaySpec.TOP}, {"Top right", OverlaySpec.TOP_RIGHT},
             {"Left middle", OverlaySpec.LEFT}, {"Center", OverlaySpec.CENTER}, {"Right middle", OverlaySpec.RIGHT},
             {"Bottom left", OverlaySpec.BOTTOM_LEFT}, {"Bottom middle", OverlaySpec.BOTTOM}, {"Bottom right", OverlaySpec.BOTTOM_RIGHT},
-            {"Sideways", OverlaySpec.TOP_LEFT}};
+            {"Custom", OverlaySpec.TOP_LEFT}, {"Sideways", OverlaySpec.TOP_LEFT}};
         for (String[] position : positions) {
             String anchor = AgendaSettings.parse(settings("corner", position[0])).anchor;
             assert anchor.equals(position[1]) : position[0] + " -> " + anchor;
         }
+        // Custom places the card exactly, x and y dp from the top left with no inset; the others keep their margin.
+        OverlaySpec custom = AgendaPlugin.spec(AgendaSettings.parse(settings("corner", "Custom", "x", 40.0, "y", 180.0)));
+        assert custom.anchor().equals(OverlaySpec.TOP_LEFT) && custom.offsetX() == 40 && custom.offsetY() == 180 && custom.inset() == 0;
+        OverlaySpec clampedCustom = AgendaPlugin.spec(AgendaSettings.parse(settings("corner", "Custom", "x", -5, "y", 99999)));
+        assert clampedCustom.offsetX() == 0 && clampedCustom.offsetY() == 4096;
+        OverlaySpec corner = AgendaPlugin.spec(AgendaSettings.parse(settings("corner", "Top left", "x", 40.0, "y", 180.0, "scale", 150)));
+        assert corner.offsetX() == 0 && corner.offsetY() == 0 && corner.insetLeft() == 36 && corner.insetTop() == 36 : "x and y only count for Custom";
 
         // Settings clamp to the manifest ranges and map corners.
         AgendaSettings clamped = AgendaSettings.parse(settings("days", 40, "maxEvents", 0, "scale", 500, "corner", "Bottom right"));
