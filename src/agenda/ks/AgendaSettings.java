@@ -110,11 +110,19 @@ final class AgendaSettings {
         return Math.max(min, Math.min(max, n));
     }
 
-    private static String anchor(Object corner) {
-        if ("Top right".equals(corner)) return OverlaySpec.TOP_RIGHT;
-        if ("Bottom left".equals(corner)) return OverlaySpec.BOTTOM_LEFT;
-        if ("Bottom right".equals(corner)) return OverlaySpec.BOTTOM_RIGHT;
-        return OverlaySpec.TOP_LEFT;
+    /** The Position setting, saved under its first name "corner" so existing choices carry over. */
+    private static String anchor(Object position) {
+        switch (String.valueOf(position)) {
+            case "Top middle": return OverlaySpec.TOP;
+            case "Top right": return OverlaySpec.TOP_RIGHT;
+            case "Left middle": return OverlaySpec.LEFT;
+            case "Center": return OverlaySpec.CENTER;
+            case "Right middle": return OverlaySpec.RIGHT;
+            case "Bottom left": return OverlaySpec.BOTTOM_LEFT;
+            case "Bottom middle": return OverlaySpec.BOTTOM;
+            case "Bottom right": return OverlaySpec.BOTTOM_RIGHT;
+            default: return OverlaySpec.TOP_LEFT;
+        }
     }
 
     @Override public boolean equals(Object other) {

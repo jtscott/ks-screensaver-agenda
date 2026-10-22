@@ -3,10 +3,10 @@
   "apiVersion": 1,
   "id": "screensaver-agenda",
   "name": "Screensaver Agenda",
-  "version": "2.1.4",
+  "version": "2.2.0",
   "minAndroidSdk": 26,
   "entryClass": "agenda.ks.AgendaPlugin",
-  "description": "Shows upcoming events from one or more Home Assistant calendars in a corner of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. The card is visual only: touches pass through and still dismiss the screensaver.",
+  "description": "Shows upcoming events from one or more Home Assistant calendars in a corner or along an edge of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. The card is visual only: touches pass through and still dismiss the screensaver.",
   "author": "jtscott",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -316,16 +316,21 @@
     {
       "key": "corner",
       "type": "select",
-      "title": "Corner",
+      "title": "Position",
       "default": "Top left",
       "options": [
         "Top left",
+        "Top middle",
         "Top right",
+        "Left middle",
+        "Center",
+        "Right middle",
         "Bottom left",
+        "Bottom middle",
         "Bottom right"
       ],
       "group": "Layout",
-      "description": "Where this card sits. It is not a Kiosk Satellite widget, so Settings > Screensaver > Widgets does not place it. Pick a corner those widgets are empty."
+      "description": "Where this card sits. It is not a Kiosk Satellite widget, so Settings > Screensaver > Widgets does not place it. Pick a spot those widgets leave empty."
     },
     {
       "key": "scale",

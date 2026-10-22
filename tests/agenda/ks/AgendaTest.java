@@ -164,6 +164,17 @@ public final class AgendaTest {
             "# Thu 8 OCT (Today)", "Soon | 10:30 AM - 11:00 AM | in 30 minutes", "Hour | 11:00 AM - 12:00 PM | in 1 hour",
             "# Fri 9 OCT (Tomorrow)", "Long weekend | All day | tomorrow")) : rows(soon, defaults);
 
+        // Every Position maps to its anchor, and an unknown one falls back to the top left.
+        String[][] positions = {
+            {"Top left", OverlaySpec.TOP_LEFT}, {"Top middle", OverlaySpec.TOP}, {"Top right", OverlaySpec.TOP_RIGHT},
+            {"Left middle", OverlaySpec.LEFT}, {"Center", OverlaySpec.CENTER}, {"Right middle", OverlaySpec.RIGHT},
+            {"Bottom left", OverlaySpec.BOTTOM_LEFT}, {"Bottom middle", OverlaySpec.BOTTOM}, {"Bottom right", OverlaySpec.BOTTOM_RIGHT},
+            {"Sideways", OverlaySpec.TOP_LEFT}};
+        for (String[] position : positions) {
+            String anchor = AgendaSettings.parse(settings("corner", position[0])).anchor;
+            assert anchor.equals(position[1]) : position[0] + " -> " + anchor;
+        }
+
         // Settings clamp to the manifest ranges and map corners.
         AgendaSettings clamped = AgendaSettings.parse(settings("days", 40, "maxEvents", 0, "scale", 500, "corner", "Bottom right"));
         assert clamped.days == 7 && clamped.maxEvents == 1 && clamped.scale == 200 && clamped.anchor.equals(OverlaySpec.BOTTOM_RIGHT);
