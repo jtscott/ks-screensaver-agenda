@@ -33,14 +33,20 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean saverActive;
     private boolean previewing;
     private boolean noHomeAssistant;
+    /** Whether the card can show, with the screensaver or a preview, as follow last saw it. */
+    private boolean visible;
     /** Whether the 10-minute refresh is subscribed. It runs only while the card can show. */
     private boolean following;
+    /** Numbers each subscribe, so a late reply to an earlier one cannot overwrite the status. */
+    private int subscribeAttempt;
     /** Why the 10-minute refresh is not running, or null while it is. */
     private String refreshError;
     /** get_events calls still out. KS answers each within 25 seconds, with a timeout at worst. */
     private int pending;
     /** A read was asked for while calls were out, so one runs when they are all back. */
     private boolean fetchAgain;
+    /** That read came from start or a settings change, so it runs even if the card is hidden by then. */
+    private boolean fetchAgainRequired;
     /** The latest answer per calendar. It stays until the next one lands, so a refresh never blanks the card. */
     private final Map<String, List<AgendaEvent>> fetched = new HashMap<>();
     private final Map<String, String> errors = new LinkedHashMap<>();
@@ -63,7 +69,7 @@ public final class AgendaPlugin implements KioskPlugin {
                 refresh();
             }
         });
-        fetch();
+        fetch(true);
         refresh();
     }
 
@@ -74,7 +80,7 @@ public final class AgendaPlugin implements KioskPlugin {
         settings = next;
         fetched.keySet().retainAll(next.calendars.keySet());
         errors.keySet().retainAll(next.calendars.keySet());
-        if (refetch) fetch();
+        if (refetch) fetch(true);
         merge();
         refresh();
     }
@@ -102,7 +108,7 @@ public final class AgendaPlugin implements KioskPlugin {
             } else if ("event".equals(type) || "resubscribed".equals(type)) {
                 // A reconnect may have missed changes, so it reads again too.
                 refreshError = null;
-                fetch();
+                fetch(false);
             }
         }
     }
@@ -113,35 +119,51 @@ public final class AgendaPlugin implements KioskPlugin {
         host = null;
     }
 
-    /** Subscribes to the 10-minute refresh and reads right away when the card can show, and unsubscribes when it can't. */
-    private void follow(boolean visible) {
-        if (visible == following || noHomeAssistant) return;
-        following = visible;
+    /**
+     * The 10-minute refresh runs only while the card can show: subscribe and read once when it appears, unsubscribe
+     * when it goes. A subscribe KS turned away as busy is tried again, without another read, once the reads are back.
+     */
+    private void follow(boolean now) {
+        if (noHomeAssistant) return;
+        if (now == visible) {
+            if (now && !following && pending == 0) subscribe();
+            return;
+        }
+        visible = now;
+        if (now) {
+            subscribe();
+            fetch(false);
+        } else if (following) {
+            following = false;
+            host.haUnsubscribe(REFRESH);
+        }
+    }
+
+    private void subscribe() {
+        Map<String, Object> trigger = new HashMap<>();
+        trigger.put("platform", "time_pattern");
+        trigger.put("minutes", "/10");
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "subscribe_trigger");
+        message.put("trigger", trigger);
+        final int attempt = ++subscribeAttempt;
         try {
-            if (!visible) {
-                host.haUnsubscribe(REFRESH);
-                return;
-            }
-            Map<String, Object> trigger = new HashMap<>();
-            trigger.put("platform", "time_pattern");
-            trigger.put("minutes", "/10");
-            Map<String, Object> message = new HashMap<>();
-            message.put("type", "subscribe_trigger");
-            message.put("trigger", trigger);
             // HA only lets admin users subscribe to triggers, so a refusal must show, not hide.
             host.haSubscribe(REFRESH, message, (ok, data, error) -> {
-                if (!alive) return;
+                if (!alive || attempt != subscribeAttempt) return;
                 refreshError = ok ? null : error;
                 report();
             });
+            following = true;
+        } catch (IllegalStateException busy) {
+            // Over KS's shared limit of 8 pending requests or 20 a second; follow tries again.
         } catch (UnsupportedOperationException | LinkageError olderHost) {
             noHomeAssistant = true;
         }
-        fetch();
     }
 
     /** One calendar.get_events per calendar, so a calendar too big for KS's 32 KB answer limit only costs itself. */
-    private void fetch() {
+    private void fetch(boolean required) {
         if (!alive || host == null || noHomeAssistant) {
             report();
             return;
@@ -149,6 +171,7 @@ public final class AgendaPlugin implements KioskPlugin {
         // KS allows 8 pending requests, so a second read waits instead of overlapping the first.
         if (pending > 0) {
             fetchAgain = true;
+            fetchAgainRequired |= required;
             return;
         }
         ZoneId zone = ZoneId.systemDefault();
@@ -170,8 +193,11 @@ public final class AgendaPlugin implements KioskPlugin {
                         refresh();
                     }
                     if (pending == 0 && fetchAgain) {
+                        // A read the card asked for is dropped once it is hidden; one settings asked for still runs.
+                        boolean run = fetchAgainRequired || visible;
                         fetchAgain = false;
-                        fetch();
+                        fetchAgainRequired = false;
+                        if (run) fetch(true);
                     }
                 });
                 pending++;
@@ -263,7 +289,7 @@ public final class AgendaPlugin implements KioskPlugin {
         } else if (settings.calendars.isEmpty()) {
             host.status("Add a calendar in Settings.", true);
         } else if (refreshError != null) {
-            host.status("Auto-refresh stopped: " + refreshError + ". Events update only when the screensaver starts or a calendar setting changes.", true);
+            host.status("Auto-refresh stopped: " + refreshError + ". Events update only when the screensaver or preview starts or a calendar setting changes.", true);
         } else if (!errors.isEmpty()) {
             StringBuilder text = new StringBuilder();
             for (Map.Entry<String, String> error : errors.entrySet()) {

@@ -30,6 +30,8 @@ public final class AgendaTest {
         final Set<String> haSubscriptions = new LinkedHashSet<>();
         CommandCallback subscribed;
         boolean noHa;
+        /** Turns subscribes away the way KS does over its shared request limits. */
+        boolean subscribeBusy;
         public void haCall(Map<String, Object> message, CommandCallback callback) {
             if (noHa) throw new UnsupportedOperationException("Home Assistant access is unavailable");
             assert "call_service".equals(message.get("type")) && "get_events".equals(message.get("service")) && Boolean.TRUE.equals(message.get("return_response"));
@@ -44,6 +46,7 @@ public final class AgendaTest {
         public void haSubscribe(String key, Map<String, Object> message, CommandCallback callback) {
             if (noHa) throw new UnsupportedOperationException("Home Assistant access is unavailable");
             assert "subscribe_trigger".equals(message.get("type"));
+            if (subscribeBusy) throw new IllegalStateException("too_many_pending");
             boolean added = haSubscriptions.add(key);
             assert added : "Subscription " + key + " is already active";
             subscribed = callback;
@@ -301,6 +304,50 @@ public final class AgendaTest {
         for (int i = 1; i <= AgendaSettings.MAX_CALENDARS; i++) busy.haCalls.remove("calendar.c" + i).onResult(true, answer("calendar.c" + i, dentist), null);
         assert busy.status.startsWith(AgendaSettings.MAX_CALENDARS + " events from " + AgendaSettings.MAX_CALENDARS + " calendars") : busy.status;
         assert busy.haCalls.size() == AgendaSettings.MAX_CALENDARS : "one more read with the new days";
+
+        // Screensaver and preview overlap: the card and its refresh stay until both end, with no second read.
+        Host both = new Host();
+        AgendaPlugin overlap = new AgendaPlugin();
+        overlap.start(both, family());
+        both.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        overlap.execute("preview", new HashMap<String, Object>());
+        PluginHost.CommandCallback firstSubscribe = both.subscribed;
+        both.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        overlap.onEvent("ks.screensaver.state", settings("active", true));
+        assert both.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH)) && both.haCalls.isEmpty();
+        assert both.calls.get(both.calls.size() - 1).equals("show") : both.calls;
+        overlap.execute("endPreview", new HashMap<String, Object>());
+        assert both.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH)) && both.calls.get(both.calls.size() - 1).equals("show");
+        overlap.execute("preview", new HashMap<String, Object>());
+        overlap.onEvent("ks.screensaver.state", settings("active", false));
+        assert both.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH)) && both.calls.get(both.calls.size() - 1).equals("show");
+        overlap.execute("endPreview", new HashMap<String, Object>());
+        assert both.haSubscriptions.isEmpty() && both.calls.get(both.calls.size() - 1).equals("hide");
+        // A late reply to that first subscribe does not overwrite the status of the current one.
+        overlap.execute("preview", new HashMap<String, Object>());
+        firstSubscribe.onResult(false, null, "unauthorized: Unauthorized");
+        assert !both.statusError : both.status;
+
+        // A subscribe KS turns away as busy still reads and shows the card, and is tried again once the reads are back.
+        Host crowded = new Host();
+        AgendaPlugin retry = new AgendaPlugin();
+        retry.start(crowded, family());
+        crowded.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        crowded.subscribeBusy = true;
+        retry.onEvent("ks.screensaver.state", settings("active", true));
+        assert crowded.calls.equals(Arrays.asList("show")) && crowded.haSubscriptions.isEmpty() && crowded.haCalls.containsKey("calendar.family");
+        crowded.subscribeBusy = false;
+        crowded.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        assert crowded.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH)) && crowded.haCalls.isEmpty() : "retried without reading again";
+
+        // A read the card asked for while the startup read was out is dropped once the card is hidden again.
+        Host blink = new Host();
+        AgendaPlugin brief = new AgendaPlugin();
+        brief.start(blink, family());
+        brief.onEvent("ks.screensaver.state", settings("active", true));
+        brief.onEvent("ks.screensaver.state", settings("active", false));
+        blink.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        assert blink.haCalls.isEmpty() && blink.haSubscriptions.isEmpty() : "no read while hidden";
 
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();

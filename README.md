@@ -41,9 +41,9 @@ adb shell 'getprop ro.product.device; getprop ro.build.version.release; getprop 
 
 ## How it works
 
-- **The plugin reads the calendars itself.** It runs `calendar.get_events` for each calendar in **Calendars**, one call per calendar, through Kiosk Satellite's own Home Assistant connection (the `ha` capability). It needs no token and no helper sensor. It reads at start, when the calendar list or **Days ahead** changes, and when the screensaver starts. While the screensaver shows, it also reads every 10 minutes on a Home Assistant `time_pattern` trigger, since plugins have no timer of their own. It unsubscribes when the screensaver ends, so an idle kiosk makes no calls.
+- **The plugin reads the calendars itself.** It runs `calendar.get_events` for each calendar in **Calendars**, one call per calendar, through Kiosk Satellite's own Home Assistant connection (the `ha` capability). It needs no token and no helper sensor. It reads at start, when the calendar list or **Days ahead** changes, and when the card appears with the screensaver or **Show preview**. While the screensaver or preview shows, it also reads every 10 minutes on a Home Assistant `time_pattern` trigger, since plugins have no timer of their own. It unsubscribes once both have ended, so an idle kiosk makes no calls beyond the reads at start and on settings changes.
 - **One calendar's limits stay its own.** KS caps each answer at 32 KB. A calendar whose events (descriptions included) go over shows an error in the plugin's status naming that calendar, and the others still show.
-- **Auto-refresh needs an admin Home Assistant user.** Home Assistant only lets admin users subscribe to triggers. If Kiosk Satellite signs in as a non-admin user, the plugin's status says "Auto-refresh stopped", and the card updates only when the screensaver starts or a calendar setting changes.
+- **Auto-refresh needs an admin Home Assistant user.** Home Assistant only lets admin users subscribe to triggers. If Kiosk Satellite signs in as a non-admin user, the plugin's status says "Auto-refresh stopped", and the card updates only when the screensaver or preview starts or a calendar setting changes.
 - **It shows one native overlay** while the screensaver runs and hides it when the screensaver ends.
 - **The card is visual only.** It is drawn with `onTop(true)` and `touchable(false)`, so it sits above the screensaver and a tap still wakes the kiosk. Back does not close it.
 - **It stays current on its own.** The card redraws on each minute, so countdowns and finished events stay right between reads.
@@ -82,7 +82,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 
 ## Data and privacy
 
-The plugin talks only to your Home Assistant, through Kiosk Satellite's existing connection and account. It sends `calendar.get_events` for the calendars you list and, while the screensaver shows, one `time_pattern` trigger subscription for the 10-minute refresh. It makes no network connections of its own, stores nothing outside Kiosk Satellite's plugin settings, and sends no data anywhere else.
+The plugin talks only to your Home Assistant, through Kiosk Satellite's existing connection and account. It sends `calendar.get_events` for the calendars you list and, while the screensaver or preview shows, one `time_pattern` trigger subscription for the 10-minute refresh. It makes no network connections of its own, stores nothing outside Kiosk Satellite's plugin settings, and sends no data anywhere else.
 
 ## Credits
 
