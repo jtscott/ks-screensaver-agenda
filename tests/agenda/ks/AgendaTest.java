@@ -30,10 +30,11 @@ public final class AgendaTest {
         final Set<String> haSubscriptions = new LinkedHashSet<>();
         CommandCallback subscribed;
         boolean noHa;
-        /** Turns subscribes away the way KS does over its shared request limits. */
-        boolean subscribeBusy;
+        /** Turn subscribes or calls away the way KS does over its shared request limits. */
+        boolean subscribeBusy, callBusy;
         public void haCall(Map<String, Object> message, CommandCallback callback) {
             if (noHa) throw new UnsupportedOperationException("Home Assistant access is unavailable");
+            if (callBusy) throw new IllegalStateException("too_many_pending");
             assert "call_service".equals(message.get("type")) && "get_events".equals(message.get("service")) && Boolean.TRUE.equals(message.get("return_response"));
             Map<?, ?> data = (Map<?, ?>) message.get("service_data");
             assert ((String) data.get("start_date_time")).matches("\\d{4}-\\d{2}-\\d{2}T00:00:00(Z|[-+]\\d{2}:\\d{2})") : data;
@@ -339,6 +340,27 @@ public final class AgendaTest {
         crowded.subscribeBusy = false;
         crowded.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
         assert crowded.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH)) && crowded.haCalls.isEmpty() : "retried without reading again";
+        crowded.subscribed.onResult(true, null, null);
+        assert !crowded.statusError : crowded.status;
+
+        // With every request turned away no reply comes back to retry from, so the status says the refresh stopped,
+        // and the next screensaver start tries again.
+        Host jammed = new Host();
+        AgendaPlugin stuck = new AgendaPlugin();
+        stuck.start(jammed, family());
+        jammed.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        jammed.subscribeBusy = true;
+        jammed.callBusy = true;
+        stuck.onEvent("ks.screensaver.state", settings("active", true));
+        assert jammed.calls.equals(Arrays.asList("show")) && jammed.haSubscriptions.isEmpty() && jammed.haCalls.isEmpty();
+        assert jammed.statusError && jammed.status.startsWith("Auto-refresh stopped: Kiosk Satellite was busy") : jammed.status;
+        jammed.subscribeBusy = false;
+        jammed.callBusy = false;
+        stuck.onEvent("ks.screensaver.state", settings("active", false));
+        stuck.onEvent("ks.screensaver.state", settings("active", true));
+        jammed.subscribed.onResult(true, null, null);
+        jammed.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        assert !jammed.statusError && jammed.haSubscriptions.equals(Collections.singleton(AgendaPlugin.REFRESH)) : jammed.status;
 
         // A read the card asked for while the startup read was out is dropped once the card is hidden again.
         Host blink = new Host();

@@ -156,7 +156,9 @@ public final class AgendaPlugin implements KioskPlugin {
             });
             following = true;
         } catch (IllegalStateException busy) {
-            // Over KS's shared limit of 8 pending requests or 20 a second; follow tries again.
+            // Over KS's shared limit of 8 pending requests or 20 a second. follow tries again when reads come back,
+            // but if KS turned those away too nothing comes back, so the status must say the refresh stopped.
+            refreshError = "Kiosk Satellite was busy";
         } catch (UnsupportedOperationException | LinkageError olderHost) {
             noHomeAssistant = true;
         }
