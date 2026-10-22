@@ -30,7 +30,7 @@ import me.jxl.kiosk.plugins.OverlayFactory;
 final class AgendaCard implements OverlayFactory {
     private static final int TEXT = 0xFFFFFFFF;
     private static final int MUTED = 0xBFFFFFFF;
-    /** Width of the event column, so every countdown lines up on the right. */
+    /** Width of the event column, so every countdown lines up on the right. Less when the screen has no room for it. */
     private static final int EVENTS_DP = 400;
 
     private final List<AgendaEvent> events;
@@ -169,8 +169,8 @@ final class AgendaCard implements OverlayFactory {
                 LinearLayout text = item(item);
                 // Space as padding, not margin, so a day's bars meet in one unbroken line.
                 text.setPadding(0, first ? 0 : dp(8), 0, 0);
-                // A fixed width lines the countdowns up, the way Calendar Card Pro right-aligns them.
-                event.addView(text, new LayoutParams(dp(EVENTS_DP), LayoutParams.WRAP_CONTENT));
+                // One width lines the countdowns up, the way Calendar Card Pro right-aligns them.
+                event.addView(text, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
                 items.addView(event);
                 first = false;
             }
@@ -181,8 +181,7 @@ final class AgendaCard implements OverlayFactory {
         }
 
         private LinearLayout item(Agenda.Item item) {
-            LinearLayout text = new LinearLayout(getContext());
-            text.setOrientation(VERTICAL);
+            LinearLayout text = new Column();
             AgendaSettings.Style style = settings.calendars.get(item.calendar);
             TextView title = label(item.title, settings.eventSize, 500, TEXT);
             title.setMaxLines(settings.titleLines);
@@ -227,6 +226,24 @@ final class AgendaCard implements OverlayFactory {
             text.addView(time, below(LayoutParams.MATCH_PARENT, 4));
             if (settings.showLocation && !item.location.isEmpty()) text.addView(detail("mdi:map-marker-outline", item.location), below(LayoutParams.MATCH_PARENT, 2));
             return text;
+        }
+
+        /**
+         * The event column: EVENTS_DP wide, or what is left when the screen is narrower. The horizontal layouts above
+         * it pass down the width the date column, gaps and padding leave, so the title wraps and the time line shortens
+         * instead of running off the screen.
+         */
+        private final class Column extends LinearLayout {
+            Column() {
+                super(Card.this.getContext());
+                setOrientation(VERTICAL);
+            }
+
+            @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                int width = dp(EVENTS_DP);
+                if (MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED) width = Math.min(width, MeasureSpec.getSize(widthSpec));
+                super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), heightSpec);
+            }
         }
 
         /** A muted line with an optional leading icon: the time, or the location. */

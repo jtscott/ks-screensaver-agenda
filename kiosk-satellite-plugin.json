@@ -6,7 +6,7 @@
   "version": "2.2.0",
   "minAndroidSdk": 26,
   "entryClass": "agenda.ks.AgendaPlugin",
-  "description": "Shows upcoming events from one or more Home Assistant calendars in a corner or along an edge of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. The card is visual only: touches pass through and still dismiss the screensaver.",
+  "description": "Shows upcoming events from one or more Home Assistant calendars in a corner, along an edge or in the center of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. The card is visual only: touches pass through and still dismiss the screensaver.",
   "author": "jtscott",
   "license": "Apache-2.0",
   "icon": "icon.png",

@@ -3,7 +3,7 @@
 > [!NOTE]
 > This plugin was created with assistance from AI (Claude Code). Every change is tested and reviewed. See [Tested devices](#tested-devices) for the hardware it has run on.
 
-A [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that shows upcoming events from one or more Home Assistant calendars in a corner or along an edge of the screensaver, over the Immich slideshow or any other mode.
+A [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that shows upcoming events from one or more Home Assistant calendars in a corner, along an edge or in the center of the screensaver, over the Immich slideshow or any other mode.
 
 ## Installation
 
