@@ -181,6 +181,8 @@ public final class AgendaTest {
         assert clampedCustom.offsetX() == 0 && clampedCustom.offsetY() == 4096;
         OverlaySpec corner = AgendaPlugin.spec(AgendaSettings.parse(settings("corner", "Top left", "x", 40.0, "y", 180.0, "scale", 150)));
         assert corner.offsetX() == 0 && corner.offsetY() == 0 && corner.insetLeft() == 36 && corner.insetTop() == 36 : "x and y only count for Custom";
+        assert AgendaSettings.parse(settings("corner", "Center", "x", 40.0)).equals(AgendaSettings.parse(settings("corner", "Center", "x", 41.0))) : "hidden x does not redraw";
+        assert !AgendaSettings.parse(settings("corner", "Custom", "x", 40.0)).equals(AgendaSettings.parse(settings("corner", "Custom", "x", 41.0)));
 
         // Settings clamp to the manifest ranges and map corners.
         AgendaSettings clamped = AgendaSettings.parse(settings("days", 40, "maxEvents", 0, "scale", 500, "corner", "Bottom right"));

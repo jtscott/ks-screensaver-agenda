@@ -65,6 +65,11 @@ final class AgendaSettings {
         custom = "Custom".equals(values.get("corner"));
         x = number(values.get("x"), 24, 0, 4096);
         y = number(values.get("y"), 24, 0, 4096);
+        // Hidden unless Custom, so a change to them must not count as a different card.
+        if (!custom) {
+            this.values.remove("x");
+            this.values.remove("y");
+        }
         scale = number(values.get("scale"), 100, 60, 200);
         opacity = number(values.get("opacity"), 55, 0, 90);
         dateColumn = flag(values.get("dateColumn"), true);
