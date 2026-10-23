@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import me.jxl.kiosk.plugins.KioskPlugin;
 import me.jxl.kiosk.plugins.OverlaySpec;
 import me.jxl.kiosk.plugins.PluginHost;
@@ -54,6 +55,7 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean shown;
     private List<AgendaEvent> shownEvents;
     private AgendaSettings shownSettings;
+    private String shownEmpty;
 
     @Override public void start(PluginHost host, Map<String, Object> values) {
         this.host = host;
@@ -264,13 +266,17 @@ public final class AgendaPlugin implements KioskPlugin {
     private void refresh() {
         if (!alive || host == null) return;
         follow(saverActive || previewing);
-        boolean wanted = (saverActive || previewing) && !events.isEmpty();
+        // The empty message waits for every calendar's answer, so a read still out or failed never passes for an empty calendar.
+        String empty = settings.emptyMessage != null && !settings.calendars.isEmpty() && errors.isEmpty()
+            && fetched.keySet().containsAll(settings.calendars.keySet()) ? settings.emptyMessage : null;
+        boolean wanted = (saverActive || previewing) && (!events.isEmpty() || empty != null);
         try {
-            if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings))) {
-                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings));
+            if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings) || !Objects.equals(empty, shownEmpty))) {
+                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty));
                 shown = true;
                 shownEvents = events;
                 shownSettings = settings;
+                shownEmpty = empty;
             } else if (!wanted && shown) {
                 host.hideOverlay(OVERLAY);
                 shown = false;

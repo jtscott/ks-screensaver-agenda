@@ -16,6 +16,7 @@ public final class AgendaTest {
         final Set<String> subscriptions = new LinkedHashSet<>();
         final List<String> calls = new ArrayList<>();
         OverlaySpec spec;
+        OverlayFactory factory;
         CommandCallback pendingRead;
         boolean older;
         boolean missingClass;
@@ -60,6 +61,7 @@ public final class AgendaTest {
             if (missingClass) throw new NoClassDefFoundError("Failed resolution of: Lme/jxl/kiosk/plugins/OverlaySpec;");
             assert key.equals(AgendaPlugin.OVERLAY) && factory != null;
             this.spec = spec;
+            this.factory = factory;
             calls.add("show");
         }
         public void hideOverlay(String key) { calls.add("hide"); }
@@ -183,6 +185,15 @@ public final class AgendaTest {
         assert corner.offsetX() == 0 && corner.offsetY() == 0 && corner.insetLeft() == 36 && corner.insetTop() == 36 : "x and y only count for Custom";
         assert AgendaSettings.parse(settings("corner", "Center", "x", 40.0)).equals(AgendaSettings.parse(settings("corner", "Center", "x", 41.0))) : "hidden x does not redraw";
         assert !AgendaSettings.parse(settings("corner", "Custom", "x", 40.0)).equals(AgendaSettings.parse(settings("corner", "Custom", "x", 41.0)));
+
+        // When there are no events: hide by default, a canned message as is, or a custom one; a blank custom one hides.
+        assert defaults.emptyMessage == null;
+        assert "All done for today".equals(AgendaSettings.parse(settings("whenEmpty", "All done for today")).emptyMessage);
+        assert "Gone fishing".equals(AgendaSettings.parse(settings("whenEmpty", "Custom", "emptyMessage", " Gone fishing ")).emptyMessage);
+        assert AgendaSettings.parse(settings("whenEmpty", "Custom", "emptyMessage", "  ")).emptyMessage == null;
+        assert AgendaSettings.parse(settings("whenEmpty", "Hide the card", "emptyMessage", "Gone fishing")).emptyMessage == null;
+        assert AgendaSettings.parse(settings("whenEmpty", "Nothing planned", "emptyMessage", "a"))
+            .equals(AgendaSettings.parse(settings("whenEmpty", "Nothing planned", "emptyMessage", "b"))) : "a hidden message does not redraw";
 
         // Settings clamp to the manifest ranges and map corners.
         AgendaSettings clamped = AgendaSettings.parse(settings("days", 40, "maxEvents", 0, "scale", 500, "corner", "Bottom right"));
@@ -390,6 +401,36 @@ public final class AgendaTest {
         brief.onEvent("ks.screensaver.state", settings("active", false));
         blink.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
         assert blink.haCalls.isEmpty() && blink.haSubscriptions.isEmpty() : "no read while hidden";
+
+        // An empty agenda shows the chosen message, but only once every calendar has answered without an error.
+        Host quiet = new Host();
+        AgendaPlugin calm = new AgendaPlugin();
+        List<Object> pair = new ArrayList<>();
+        pair.add(settings("calendar", "calendar.family"));
+        pair.add(settings("calendar", "calendar.work"));
+        calm.start(quiet, settings("calendars", pair, "whenEmpty", "No upcoming events"));
+        calm.execute("preview", new HashMap<String, Object>());
+        assert quiet.calls.isEmpty() : "nothing while the reads are out";
+        quiet.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert quiet.calls.isEmpty() : "one calendar is still out";
+        quiet.haCalls.remove("calendar.work").onResult(false, null, "unknown_error: Calendar unavailable");
+        assert quiet.calls.isEmpty() : "a failed read is not an empty calendar";
+        quiet.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        quiet.haCalls.remove("calendar.work").onResult(true, answer("calendar.work"), null);
+        assert quiet.calls.equals(Arrays.asList("show")) && "No upcoming events".equals(((AgendaCard) quiet.factory).emptyMessage) : quiet.calls;
+        calm.configure(settings("calendars", pair));
+        assert quiet.calls.get(quiet.calls.size() - 1).equals("hide") : "Hide the card takes it away again";
+        // The card keeps the message for when today's events end, and drops it once a calendar's latest read fails.
+        calm.configure(settings("calendars", pair, "whenEmpty", "No upcoming events"));
+        Map<String, Object> recital = event("Recital", "2099-10-09T18:00:00-06:00", "2099-10-09T19:00:00-06:00");
+        calm.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        quiet.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", recital), null);
+        quiet.haCalls.remove("calendar.work").onResult(true, answer("calendar.work"), null);
+        assert "No upcoming events".equals(((AgendaCard) quiet.factory).emptyMessage);
+        calm.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        quiet.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", recital), null);
+        quiet.haCalls.remove("calendar.work").onResult(false, null, "unknown_error: Calendar unavailable");
+        assert ((AgendaCard) quiet.factory).emptyMessage == null : "stale answers must not promise an empty calendar";
 
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();

@@ -33,6 +33,8 @@ final class AgendaSettings {
     final int days;
     final int maxEvents;
     final boolean showLocation;
+    /** What the card says when nothing is left in Days ahead, or null to hide it. */
+    final String emptyMessage;
     final boolean clock24;
     final String anchor;
     /** Position "Custom": the card's exact place, x and y dp from the top left of the screen. */
@@ -60,6 +62,10 @@ final class AgendaSettings {
         days = number(values.get("days"), 3, 1, 7);
         maxEvents = number(values.get("maxEvents"), 5, 1, 10);
         showLocation = flag(values.get("showLocation"), false);
+        String whenEmpty = string(values.get("whenEmpty"), "Hide the card");
+        String ownMessage = string(values.get("emptyMessage"), "");
+        if ("Custom".equals(whenEmpty)) emptyMessage = ownMessage.isEmpty() ? null : ownMessage;
+        else emptyMessage = whenEmpty.isEmpty() || "Hide the card".equals(whenEmpty) ? null : whenEmpty;
         clock24 = "24-hour".equals(values.get("clock"));
         anchor = anchor(values.get("corner"));
         custom = "Custom".equals(values.get("corner"));
@@ -70,6 +76,7 @@ final class AgendaSettings {
             this.values.remove("x");
             this.values.remove("y");
         }
+        if (!"Custom".equals(whenEmpty)) this.values.remove("emptyMessage");
         scale = number(values.get("scale"), 100, 60, 200);
         opacity = number(values.get("opacity"), 55, 0, 90);
         dateColumn = flag(values.get("dateColumn"), true);

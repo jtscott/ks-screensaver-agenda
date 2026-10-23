@@ -3,7 +3,7 @@
   "apiVersion": 1,
   "id": "screensaver-agenda",
   "name": "Screensaver Agenda",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "minAndroidSdk": 26,
   "entryClass": "agenda.ks.AgendaPlugin",
   "description": "Shows upcoming events from one or more Home Assistant calendars in a corner, along an edge or in the center of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. The card is visual only: touches pass through and still dismiss the screensaver.",
@@ -104,6 +104,34 @@
       "step": 1,
       "group": "Calendar",
       "description": "The most events listed at once."
+    },
+    {
+      "key": "whenEmpty",
+      "type": "select",
+      "title": "When there are no events",
+      "default": "Hide the card",
+      "options": [
+        "Hide the card",
+        "No upcoming events",
+        "All done for today",
+        "Nothing planned",
+        "Enjoy your free time",
+        "Custom"
+      ],
+      "group": "Calendar",
+      "description": "What the card shows when nothing is left within Days ahead. A message shows only once every calendar has been read, so a failed read never passes for an empty calendar."
+    },
+    {
+      "key": "emptyMessage",
+      "type": "string",
+      "title": "Message",
+      "default": "",
+      "group": "Calendar",
+      "visibleWhen": {
+        "key": "whenEmpty",
+        "equals": "Custom"
+      },
+      "description": "Shown when there are no events. Leave it empty to hide the card instead."
     },
     {
       "key": "showLocation",

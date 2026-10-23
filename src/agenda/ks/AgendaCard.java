@@ -35,14 +35,17 @@ final class AgendaCard implements OverlayFactory {
 
     private final List<AgendaEvent> events;
     private final AgendaSettings settings;
+    /** Shown when nothing is left in Days ahead, or null to hide the card then. */
+    final String emptyMessage;
 
-    AgendaCard(List<AgendaEvent> events, AgendaSettings settings) {
+    AgendaCard(List<AgendaEvent> events, AgendaSettings settings, String emptyMessage) {
         this.events = events;
         this.settings = settings;
+        this.emptyMessage = emptyMessage;
     }
 
     @Override public View create(Context context, KsTheme theme) {
-        return new Card(context, theme, events, settings);
+        return new Card(context, theme, events, settings, emptyMessage);
     }
 
     @Override public void onDestroy(View view) {
@@ -54,6 +57,7 @@ final class AgendaCard implements OverlayFactory {
         private final KsTheme theme;
         private final List<AgendaEvent> events;
         private final AgendaSettings settings;
+        private final String emptyMessage;
         private final float k;
         /** Accent color per calendar entity. */
         private final Map<String, Integer> colors = new HashMap<>();
@@ -67,11 +71,12 @@ final class AgendaCard implements OverlayFactory {
             }
         };
 
-        Card(Context context, KsTheme theme, List<AgendaEvent> events, AgendaSettings settings) {
+        Card(Context context, KsTheme theme, List<AgendaEvent> events, AgendaSettings settings, String emptyMessage) {
             super(context);
             this.theme = theme;
             this.events = events;
             this.settings = settings;
+            this.emptyMessage = emptyMessage;
             this.k = settings.scale / 100f;
             for (Map.Entry<String, AgendaSettings.Style> calendar : settings.calendars.entrySet()) colors.put(calendar.getKey(), parseColor(calendar.getValue().color));
             setOrientation(VERTICAL);
@@ -113,7 +118,8 @@ final class AgendaCard implements OverlayFactory {
             try {
                 removeAllViews();
                 List<Agenda.Day> days = Agenda.days(events, ZonedDateTime.now(ZoneId.systemDefault()), settings, Locale.getDefault());
-                if (days.isEmpty()) {
+                // Nothing left in Days ahead, such as after today's last event: the chosen message, or no card.
+                if (days.isEmpty() && emptyMessage == null) {
                     setVisibility(GONE);
                     return;
                 }
@@ -124,6 +130,12 @@ final class AgendaCard implements OverlayFactory {
                     title.setLetterSpacing(0.12f);
                     addView(title);
                     first = false;
+                }
+                if (days.isEmpty()) {
+                    TextView message = label(emptyMessage, settings.eventSize, 500, TEXT);
+                    message.setMaxWidth(dp(EVENTS_DP));
+                    addView(message, below(LayoutParams.WRAP_CONTENT, first ? 0 : 10));
+                    return;
                 }
                 for (Agenda.Day day : days) {
                     addView(day(day), below(LayoutParams.WRAP_CONTENT, first ? 0 : 14));
