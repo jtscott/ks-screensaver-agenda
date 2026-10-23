@@ -467,9 +467,15 @@ public final class AgendaTest {
 
         // Answers cover the window they were read for. Midnight moves the window, so yesterday's empty answer cannot
         // say today is empty: the message waits for today's read.
-        assert Agenda.covers(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 23), 1);
-        assert !Agenda.covers(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 24), 1);
-        assert Agenda.covers(LocalDate.of(2026, 10, 30), LocalDate.of(2026, 10, 24), 3) && !Agenda.covers(null, LocalDate.of(2026, 10, 24), 1);
+        Agenda.Window oct23 = new Agenda.Window(Instant.parse("2026-10-23T06:00:00Z"), Instant.parse("2026-10-24T06:00:00Z"));
+        assert oct23.covers(ZonedDateTime.of(2026, 10, 23, 23, 50, 0, 0, ZONE), 1);
+        assert !oct23.covers(ZonedDateTime.of(2026, 10, 24, 0, 10, 0, 0, ZONE), 1) : "midnight moved the window";
+        assert !oct23.covers(ZonedDateTime.of(2026, 10, 23, 12, 0, 0, 0, ZONE), 2) : "a wider window";
+        assert !oct23.covers(ZonedDateTime.of(2026, 10, 22, 12, 0, 0, 0, ZONE), 1) : "a clock set back";
+        assert !oct23.covers(ZonedDateTime.of(2026, 10, 23, 12, 0, 0, 0, ZoneId.of("Asia/Tokyo")), 1) : "the same date in another zone";
+        // Across the end of daylight saving the day is 25 hours long, and a read of it still covers it.
+        ZonedDateTime fallBack = ZonedDateTime.of(2026, 11, 1, 0, 0, 0, 0, ZONE);
+        assert new Agenda.Window(fallBack.toInstant(), fallBack.plusDays(1).toInstant()).covers(fallBack.plusHours(23), 1);
         Host night = new Host();
         AgendaPlugin late = new AgendaPlugin();
         late.clock = Clock.fixed(Instant.parse("2026-10-24T05:50:00Z"), ZONE); // 23:50 on October 23
@@ -478,14 +484,57 @@ public final class AgendaTest {
         night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
         night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
         AgendaCard evening = (AgendaCard) night.factory;
-        assert "All done for today".equals(evening.emptyMessage) && LocalDate.of(2026, 10, 24).equals(evening.coveredUntil);
+        assert "All done for today".equals(evening.emptyMessage) && evening.covered.until.equals(Instant.parse("2026-10-24T06:00:00Z"));
         late.clock = Clock.fixed(Instant.parse("2026-10-24T06:10:00Z"), ZONE); // 00:10 on October 24
         late.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
         assert night.calls.get(night.calls.size() - 1).equals("hide") : "yesterday's answer cannot say today is empty";
         night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
         AgendaCard morning = (AgendaCard) night.factory;
         assert night.calls.get(night.calls.size() - 1).equals("show") && "All done for today".equals(morning.emptyMessage)
-            && LocalDate.of(2026, 10, 25).equals(morning.coveredUntil);
+            && morning.covered.until.equals(Instant.parse("2026-10-25T06:00:00Z"));
+        // A clock set back to a day never read, and a move to another zone, wait for a read of the window shown.
+        late.clock = Clock.fixed(Instant.parse("2026-10-23T18:00:00Z"), ZONE);
+        late.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        assert night.calls.get(night.calls.size() - 1).equals("hide") : "October 24's answer says nothing about October 23";
+        night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert night.calls.get(night.calls.size() - 1).equals("show");
+        late.clock = Clock.fixed(Instant.parse("2026-10-23T18:00:00Z"), ZoneId.of("Asia/Tokyo"));
+        late.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        assert night.calls.get(night.calls.size() - 1).equals("hide") : "Denver's October 23 is not Tokyo's October 24";
+        night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert night.calls.get(night.calls.size() - 1).equals("show") && ((AgendaCard) night.factory).covered.from.equals(Instant.parse("2026-10-23T15:00:00Z"));
+
+        // With the device's own clock, a time zone change takes effect at once rather than keeping the zone it started in.
+        TimeZone homeZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Tokyo"));
+            Host moving = new Host();
+            AgendaPlugin traveller = new AgendaPlugin();
+            traveller.start(moving, settings("calendars", one, "whenEmpty", "Nothing planned"));
+            traveller.execute("preview", new HashMap<String, Object>());
+            moving.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+            moving.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+            assert moving.calls.get(moving.calls.size() - 1).equals("show");
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Denver"));
+            traveller.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+            assert moving.calls.get(moving.calls.size() - 1).equals("hide") : "Tokyo's day is not Denver's";
+        } finally {
+            TimeZone.setDefault(homeZone);
+        }
+
+        // Settings that change before their answer lands: the card carries the newest coverage, not the one it was built with.
+        Host flip = new Host();
+        AgendaPlugin fickle = new AgendaPlugin();
+        fickle.clock = Clock.fixed(Instant.parse("2026-10-24T05:50:00Z"), ZONE);
+        fickle.start(flip, settings("calendars", one, "whenEmpty", "All done for today", "days", 1));
+        fickle.execute("preview", new HashMap<String, Object>());
+        flip.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        flip.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        fickle.configure(settings("calendars", one, "whenEmpty", "All done for today", "days", 7));
+        fickle.configure(settings("calendars", one, "whenEmpty", "All done for today", "days", 1));
+        fickle.clock = Clock.fixed(Instant.parse("2026-10-24T06:10:00Z"), ZONE);
+        flip.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert ((AgendaCard) flip.factory).covered.covers(ZonedDateTime.now(fickle.clock), 1) : "the week's answer covers today";
 
         // A calendar removed and added back must be read again before the card may say the agenda is empty.
         Host again = new Host();

@@ -2,6 +2,7 @@
 package agenda.ks;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -51,16 +52,17 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean fetchAgainRequired;
     /** The latest answer per calendar. It stays until the next one lands, so a refresh never blanks the card. */
     private final Map<String, List<AgendaEvent>> fetched = new HashMap<>();
-    /** The day each calendar's latest answer runs up to, exclusive, so the empty message knows what it covers. */
-    private final Map<String, LocalDate> readUntil = new HashMap<>();
+    /** The span each calendar's latest answer was read for, so the empty message knows what it covers. */
+    private final Map<String, Agenda.Window> readWindows = new HashMap<>();
     private final Map<String, String> errors = new LinkedHashMap<>();
     private List<AgendaEvent> events = Collections.emptyList();
     private boolean shown;
     private List<AgendaEvent> shownEvents;
     private AgendaSettings shownSettings;
     private String shownEmpty;
-    /** For tests: what day it is decides which window to read and whether the answers still cover it. */
-    Clock clock = Clock.systemDefaultZone();
+    private Agenda.Window shownCovered;
+    /** Null for the device's clock and current zone. Tests fix the time and the zone. */
+    Clock clock;
 
     @Override public void start(PluginHost host, Map<String, Object> values) {
         this.host = host;
@@ -87,7 +89,7 @@ public final class AgendaPlugin implements KioskPlugin {
         settings = next;
         fetched.keySet().retainAll(next.calendars.keySet());
         errors.keySet().retainAll(next.calendars.keySet());
-        readUntil.keySet().retainAll(next.calendars.keySet());
+        readWindows.keySet().retainAll(next.calendars.keySet());
         merge();
         if (refetch) fetch(true);
         refresh();
@@ -184,10 +186,8 @@ public final class AgendaPlugin implements KioskPlugin {
             fetchAgainRequired |= required;
             return;
         }
-        ZoneId zone = clock.getZone();
-        LocalDate today = LocalDate.now(clock);
-        ZonedDateTime from = today.atStartOfDay(zone);
-        final LocalDate until = today.plusDays(settings.days);
+        ZonedDateTime from = LocalDate.now(clock()).atStartOfDay(clock().getZone());
+        final Agenda.Window window = new Agenda.Window(from.toInstant(), from.plusDays(settings.days).toInstant());
         for (final String calendar : settings.calendars.keySet()) {
             try {
                 host.haCall(getEvents(calendar, from, from.plusDays(settings.days)), (ok, data, error) -> {
@@ -197,7 +197,7 @@ public final class AgendaPlugin implements KioskPlugin {
                     if (settings.calendars.containsKey(calendar)) {
                         if (ok) {
                             fetched.put(calendar, parseResponse(data, calendar));
-                            readUntil.put(calendar, until);
+                            readWindows.put(calendar, window);
                             errors.remove(calendar);
                         } else {
                             errors.put(calendar, error);
@@ -278,17 +278,18 @@ public final class AgendaPlugin implements KioskPlugin {
         follow(saverActive || previewing);
         // The empty message needs an answer from every calendar, none failed, covering the window shown now. The card
         // checks the coverage again each minute, since midnight moves the window before any refresh runs.
-        LocalDate covered = settings.emptyMessage == null ? null : coveredUntil();
-        String empty = Agenda.covers(covered, LocalDate.now(clock), settings.days) ? settings.emptyMessage : null;
+        Agenda.Window covered = settings.emptyMessage == null ? null : covered();
+        String empty = covered != null && covered.covers(ZonedDateTime.now(clock()), settings.days) ? settings.emptyMessage : null;
         boolean wanted = (saverActive || previewing) && (!events.isEmpty() || empty != null);
         try {
-            // A new covered day always comes with a new day or Days ahead, which change empty or settings too.
-            if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings) || !Objects.equals(empty, shownEmpty))) {
+            if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings)
+                    || !Objects.equals(empty, shownEmpty) || !Objects.equals(covered, shownCovered))) {
                 host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty, covered));
                 shown = true;
                 shownEvents = events;
                 shownSettings = settings;
                 shownEmpty = empty;
+                shownCovered = covered;
             } else if (!wanted && shown) {
                 host.hideOverlay(OVERLAY);
                 shown = false;
@@ -305,16 +306,23 @@ public final class AgendaPlugin implements KioskPlugin {
         report();
     }
 
-    /** The day the latest answers of all the calendars run up to, or null while one has none or one failed. */
-    private LocalDate coveredUntil() {
+    /** The span every calendar's latest answer covers, or null while one has none or one failed. */
+    private Agenda.Window covered() {
         if (!errors.isEmpty() || settings.calendars.isEmpty()) return null;
-        LocalDate covered = LocalDate.MAX;
+        Instant from = Instant.MIN;
+        Instant until = Instant.MAX;
         for (String calendar : settings.calendars.keySet()) {
-            LocalDate until = readUntil.get(calendar);
-            if (until == null) return null;
-            if (until.isBefore(covered)) covered = until;
+            Agenda.Window read = readWindows.get(calendar);
+            if (read == null) return null;
+            if (read.from.isAfter(from)) from = read.from;
+            if (read.until.isBefore(until)) until = read.until;
         }
-        return covered;
+        return new Agenda.Window(from, until);
+    }
+
+    /** Looked up on each use, so a time zone change takes effect at once. */
+    private Clock clock() {
+        return clock != null ? clock : Clock.systemDefaultZone();
     }
 
     private void report() {

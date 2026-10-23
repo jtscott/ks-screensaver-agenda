@@ -13,7 +13,6 @@ import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.HashMap;
@@ -38,18 +37,18 @@ final class AgendaCard implements OverlayFactory {
     private final AgendaSettings settings;
     /** Shown when nothing is left in Days ahead, or null to hide the card then. */
     final String emptyMessage;
-    /** The day the answers run up to, exclusive; the message shows only while they cover the window. */
-    final LocalDate coveredUntil;
+    /** The span the answers were read for; the message shows only while it holds the window shown. */
+    final Agenda.Window covered;
 
-    AgendaCard(List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, LocalDate coveredUntil) {
+    AgendaCard(List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered) {
         this.events = events;
         this.settings = settings;
         this.emptyMessage = emptyMessage;
-        this.coveredUntil = coveredUntil;
+        this.covered = covered;
     }
 
     @Override public View create(Context context, KsTheme theme) {
-        return new Card(context, theme, events, settings, emptyMessage, coveredUntil);
+        return new Card(context, theme, events, settings, emptyMessage, covered);
     }
 
     @Override public void onDestroy(View view) {
@@ -62,7 +61,7 @@ final class AgendaCard implements OverlayFactory {
         private final List<AgendaEvent> events;
         private final AgendaSettings settings;
         private final String emptyMessage;
-        private final LocalDate coveredUntil;
+        private final Agenda.Window covered;
         private final float k;
         /** Accent color per calendar entity. */
         private final Map<String, Integer> colors = new HashMap<>();
@@ -76,13 +75,13 @@ final class AgendaCard implements OverlayFactory {
             }
         };
 
-        Card(Context context, KsTheme theme, List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, LocalDate coveredUntil) {
+        Card(Context context, KsTheme theme, List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered) {
             super(context);
             this.theme = theme;
             this.events = events;
             this.settings = settings;
             this.emptyMessage = emptyMessage;
-            this.coveredUntil = coveredUntil;
+            this.covered = covered;
             this.k = settings.scale / 100f;
             for (Map.Entry<String, AgendaSettings.Style> calendar : settings.calendars.entrySet()) colors.put(calendar.getKey(), parseColor(calendar.getValue().color));
             setOrientation(VERTICAL);
@@ -126,8 +125,8 @@ final class AgendaCard implements OverlayFactory {
                 ZonedDateTime now = ZonedDateTime.now(ZoneId.systemDefault());
                 List<Agenda.Day> days = Agenda.days(events, now, settings, Locale.getDefault());
                 // Nothing left in Days ahead, such as after today's last event: the chosen message, or no card. Past
-                // midnight the answers no longer cover the window, so no message until the next read.
-                String message = Agenda.covers(coveredUntil, now.toLocalDate(), settings.days) ? emptyMessage : null;
+                // midnight, or in a new zone, the answers no longer cover the window, so no message until the next read.
+                String message = covered != null && covered.covers(now, settings.days) ? emptyMessage : null;
                 if (days.isEmpty() && message == null) {
                     setVisibility(GONE);
                     return;

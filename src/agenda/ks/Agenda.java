@@ -2,6 +2,7 @@
 package agenda.ks;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -11,6 +12,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 /**
  * Turns events into the days the card draws, Calendar Card Pro style: a date
@@ -122,11 +124,29 @@ final class Agenda {
     }
 
     /**
-     * Whether answers read up to coveredUntil (exclusive) cover the window shown from today. After midnight, or with a
-     * wider Days ahead, they may not, and then they cannot say the calendar is empty.
+     * The span of time answers were read for. An empty answer says nothing outside it, so the window shown must sit
+     * inside: after midnight, a wider Days ahead, a time zone change or a clock set back, it may not.
      */
-    static boolean covers(LocalDate coveredUntil, LocalDate today, int days) {
-        return coveredUntil != null && !today.plusDays(days).isAfter(coveredUntil);
+    static final class Window {
+        final Instant from;
+        final Instant until;
+
+        Window(Instant from, Instant until) {
+            this.from = from;
+            this.until = until;
+        }
+
+        /** Whether it holds today's window, from midnight in now's zone through Days ahead. */
+        boolean covers(ZonedDateTime now, int days) {
+            ZonedDateTime start = now.toLocalDate().atStartOfDay(now.getZone());
+            return !start.toInstant().isBefore(from) && !start.plusDays(days).toInstant().isAfter(until);
+        }
+
+        @Override public boolean equals(Object other) {
+            return other instanceof Window && from.equals(((Window) other).from) && until.equals(((Window) other).until);
+        }
+
+        @Override public int hashCode() { return Objects.hash(from, until); }
     }
 
     /** Calendar Card Pro's countdown: minutes and hours today, then days. Nothing for today's all-day events. */
