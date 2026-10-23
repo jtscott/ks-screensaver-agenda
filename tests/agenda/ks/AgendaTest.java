@@ -108,6 +108,13 @@ public final class AgendaTest {
         public void status(String message, boolean error) { status = message; statusError = error; }
     }
 
+    /** The bytes one code point takes in utf8.encode(jsonEncode(...)), as Dart's JSON encoder escapes it. */
+    static int dartJsonBytes(int codePoint) {
+        if (codePoint == '"' || codePoint == '\\' || codePoint == '\b' || codePoint == '\t' || codePoint == '\n' || codePoint == '\f' || codePoint == '\r') return 2;
+        if (codePoint < 0x20) return 6; // \u000b and the like
+        return codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
+    }
+
     static Map<String, Object> event(String summary, String start, String end) {
         Map<String, Object> e = new LinkedHashMap<>();
         e.put("summary", summary);
@@ -636,6 +643,13 @@ public final class AgendaTest {
         assert page.results.get(page.results.size() - 1).startsWith("r5 error: Kiosk Satellite is busy") : page.results;
         page.subscribeBusy = false;
         assert AgendaPlugin.parseCalendars("[['calendar.a', 'A']]") == null : "an unparsed string is not a list";
+        // The template's byte budget counts each name character at the most KS's measure can give it, so a list that
+        // passes the budget can never come back too_large. A vertical tab (U+000B) takes six bytes.
+        for (int codePoint = 0; codePoint <= 0x10FFFF; codePoint++) {
+            if (codePoint >= 0xD800 && codePoint <= 0xDFFF) continue;
+            assert dartJsonBytes(codePoint) <= AgendaPlugin.NAME_CHAR_BYTES : "U+" + Integer.toHexString(codePoint);
+        }
+        assert AgendaPlugin.LIST_TEMPLATE.contains("(name | length) * " + AgendaPlugin.NAME_CHAR_BYTES + " + 8") && AgendaPlugin.LIST_TEMPLATE.contains("ns.size + cost <= 25000");
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r5b"));
         picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", listRows)));
         assert page.results.get(page.results.size() - 1).startsWith("r5b error: Home Assistant sent the calendars in a form") : "rows without their total";

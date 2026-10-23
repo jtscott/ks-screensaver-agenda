@@ -33,13 +33,18 @@ public final class AgendaPlugin implements KioskPlugin {
     /** A one-answer subscription, numbered per attempt: render_template is the light way to list one domain's entities. */
     static final String LIST = "calendarList";
     /**
+     * The most bytes one character of a name can take in the event KS measures, utf8.encode(jsonEncode(...)): Dart writes
+     * control characters as six-byte escapes such as \u000b, and anything else in at most four UTF-8 bytes.
+     */
+    static final int NAME_CHAR_BYTES = 6;
+    /**
      * [rows, total]: [[entity_id, name], ...] by name and how many calendars HA has. HA sends it as JSON. The rows stop at
-     * KS's 200 choices or at 25,000 bytes, counting each name at UTF-8's worst 4 bytes a character, so the answer stays
-     * under KS's 30 KB event limit with room for the event's own fields.
+     * KS's 200 choices or at 25,000 bytes, counting each name character at NAME_CHAR_BYTES (entity IDs are ASCII), so the
+     * answer stays under KS's 30 KB event limit with room for the event's own fields.
      */
     static final String LIST_TEMPLATE = "{%- set ns = namespace(rows=[], size=0) -%}"
         + "{%- for s in states.calendar | sort(attribute='name') -%}"
-        + "{%- set name = s.name[:80] -%}{%- set cost = (s.entity_id | length) + (name | length) * 4 + 8 -%}"
+        + "{%- set name = s.name[:80] -%}{%- set cost = (s.entity_id | length) + (name | length) * " + NAME_CHAR_BYTES + " + 8 -%}"
         + "{%- if ns.rows | length < 200 and ns.size + cost <= 25000 -%}"
         + "{%- set ns.rows = ns.rows + [[s.entity_id, name]] -%}{%- set ns.size = ns.size + cost -%}{%- endif -%}"
         + "{%- endfor -%}{{ [ns.rows, states.calendar | count] }}";
