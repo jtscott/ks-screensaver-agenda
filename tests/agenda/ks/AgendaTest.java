@@ -476,6 +476,12 @@ public final class AgendaTest {
         // Across the end of daylight saving the day is 25 hours long, and a read of it still covers it.
         ZonedDateTime fallBack = ZonedDateTime.of(2026, 11, 1, 0, 0, 0, 0, ZONE);
         assert new Agenda.Window(fallBack.toInstant(), fallBack.plusDays(1).toInstant()).covers(fallBack.plusHours(23), 1);
+        // Where daylight saving skips midnight the day starts at 01:00, yet still ends at the next midnight.
+        ZoneId santiago = ZoneId.of("America/Santiago");
+        assert LocalDate.of(2026, 9, 6).atStartOfDay(santiago).getHour() == 1 : "September 6 starts at 01:00 in Santiago";
+        Agenda.Window twoDays = new Agenda.Window(LocalDate.of(2026, 9, 5).atStartOfDay(santiago).toInstant(),
+            LocalDate.of(2026, 9, 7).atStartOfDay(santiago).toInstant());
+        assert twoDays.covers(ZonedDateTime.of(2026, 9, 6, 12, 0, 0, 0, santiago), 1) : "a read of September 5 and 6 covers September 6";
         Host night = new Host();
         AgendaPlugin late = new AgendaPlugin();
         late.clock = Clock.fixed(Instant.parse("2026-10-24T05:50:00Z"), ZONE); // 23:50 on October 23

@@ -138,8 +138,11 @@ final class Agenda {
 
         /** Whether it holds today's window, from midnight in now's zone through Days ahead. */
         boolean covers(ZonedDateTime now, int days) {
-            ZonedDateTime start = now.toLocalDate().atStartOfDay(now.getZone());
-            return !start.toInstant().isBefore(from) && !start.plusDays(days).toInstant().isAfter(until);
+            // Each end from its own date: where daylight saving skips midnight a day starts at 01:00, and a day
+            // added to that would run an hour past the next midnight.
+            Instant start = now.toLocalDate().atStartOfDay(now.getZone()).toInstant();
+            Instant end = now.toLocalDate().plusDays(days).atStartOfDay(now.getZone()).toInstant();
+            return !start.isBefore(from) && !end.isAfter(until);
         }
 
         @Override public boolean equals(Object other) {
