@@ -33,6 +33,8 @@ public final class AgendaTest {
         final Map<String, CommandCallback> haCalls = new LinkedHashMap<>();
         final Set<String> haSubscriptions = new LinkedHashSet<>();
         CommandCallback subscribed;
+        /** The end_date_time of the latest get_events. */
+        String lastEnd;
         boolean noHa;
         /** Turn subscribes or calls away the way KS does over its shared request limits. */
         boolean subscribeBusy, callBusy;
@@ -41,7 +43,9 @@ public final class AgendaTest {
             if (callBusy) throw new IllegalStateException("too_many_pending");
             assert "call_service".equals(message.get("type")) && "get_events".equals(message.get("service")) && Boolean.TRUE.equals(message.get("return_response"));
             Map<?, ?> data = (Map<?, ?>) message.get("service_data");
-            assert ((String) data.get("start_date_time")).matches("\\d{4}-\\d{2}-\\d{2}T00:00:00(Z|[-+]\\d{2}:\\d{2})") : data;
+            // Midnight, or 01:00 where daylight saving skips midnight.
+            assert ((String) data.get("start_date_time")).matches("\\d{4}-\\d{2}-\\d{2}T0[01]:00:00(Z|[-+]\\d{2}:\\d{2})") : data;
+            lastEnd = (String) data.get("end_date_time");
             String calendar = (String) ((Map<?, ?>) message.get("target")).get("entity_id");
             assert !haCalls.containsKey(calendar) : "a second read of " + calendar + " while one is out";
             // KS's limit. haCall and executeCommand share it; the screensaver read and the subscription are answered by then.
@@ -509,6 +513,14 @@ public final class AgendaTest {
         assert night.calls.get(night.calls.size() - 1).equals("hide") : "Denver's October 23 is not Tokyo's October 24";
         night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
         assert night.calls.get(night.calls.size() - 1).equals("show") && ((AgendaCard) night.factory).covered.from.equals(Instant.parse("2026-10-23T15:00:00Z"));
+
+        // Where daylight saving skips midnight, a read still ends at the next midnight, so no event past the window can push
+        // the answer over KS's 32 KB limit.
+        Host chile = new Host();
+        AgendaPlugin southern = new AgendaPlugin();
+        southern.clock = Clock.fixed(ZonedDateTime.of(2026, 9, 6, 12, 0, 0, 0, santiago).toInstant(), santiago);
+        southern.start(chile, settings("calendars", one, "days", 1));
+        assert chile.lastEnd.startsWith("2026-09-07T00:00:00") : chile.lastEnd;
 
         // With the device's own clock, a time zone change takes effect at once rather than keeping the zone it started in.
         TimeZone homeZone = TimeZone.getDefault();

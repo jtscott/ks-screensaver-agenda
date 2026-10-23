@@ -186,11 +186,16 @@ public final class AgendaPlugin implements KioskPlugin {
             fetchAgainRequired |= required;
             return;
         }
-        ZonedDateTime from = LocalDate.now(clock()).atStartOfDay(clock().getZone());
-        final Agenda.Window window = new Agenda.Window(from.toInstant(), from.plusDays(settings.days).toInstant());
+        // The end from its own date, as in Agenda.Window.covers: where daylight saving skips midnight the day starts at
+        // 01:00, and a read running an hour past the window could pull in an event too big for KS's 32 KB answer.
+        ZoneId zone = clock().getZone();
+        LocalDate today = LocalDate.now(clock());
+        ZonedDateTime from = today.atStartOfDay(zone);
+        ZonedDateTime to = today.plusDays(settings.days).atStartOfDay(zone);
+        final Agenda.Window window = new Agenda.Window(from.toInstant(), to.toInstant());
         for (final String calendar : settings.calendars.keySet()) {
             try {
-                host.haCall(getEvents(calendar, from, from.plusDays(settings.days)), (ok, data, error) -> {
+                host.haCall(getEvents(calendar, from, to), (ok, data, error) -> {
                     if (!alive) return;
                     pending--;
                     // A calendar removed while its read was out stays out.
