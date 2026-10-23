@@ -30,11 +30,19 @@ public final class AgendaPlugin implements KioskPlugin {
     static final String REFRESH = "refresh";
     /** The Calendar field of each Calendars row, whose picker lists the calendar entities. */
     static final String CALENDAR_CHOICES = "calendars.calendar";
-    /** A one-answer subscription: render_template is the light way to list one domain's entities. */
+    /** A one-answer subscription, numbered per attempt: render_template is the light way to list one domain's entities. */
     static final String LIST = "calendarList";
-    /** [[entity_id, name], ...] by name. HA sends the rendered list as JSON. Trimmed to KS's 200 choices of 80-character labels, so it stays under KS's 30 KB event limit. */
-    static final String LIST_TEMPLATE = "{%- set ns = namespace(rows=[]) %}{% for s in (states.calendar | sort(attribute='name'))[:200] %}"
-        + "{% set ns.rows = ns.rows + [[s.entity_id, s.name[:80]]] %}{% endfor %}{{ ns.rows }}";
+    /**
+     * [rows, total]: [[entity_id, name], ...] by name and how many calendars HA has. HA sends it as JSON. The rows stop at
+     * KS's 200 choices or at 25,000 bytes, counting each name at UTF-8's worst 4 bytes a character, so the answer stays
+     * under KS's 30 KB event limit with room for the event's own fields.
+     */
+    static final String LIST_TEMPLATE = "{%- set ns = namespace(rows=[], size=0) -%}"
+        + "{%- for s in states.calendar | sort(attribute='name') -%}"
+        + "{%- set name = s.name[:80] -%}{%- set cost = (s.entity_id | length) + (name | length) * 4 + 8 -%}"
+        + "{%- if ns.rows | length < 200 and ns.size + cost <= 25000 -%}"
+        + "{%- set ns.rows = ns.rows + [[s.entity_id, name]] -%}{%- set ns.size = ns.size + cost -%}{%- endif -%}"
+        + "{%- endfor -%}{{ [ns.rows, states.calendar | count] }}";
 
     private PluginHost host;
     private boolean alive;
@@ -49,8 +57,9 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean following;
     /** Numbers each subscribe, so a late reply to an earlier one cannot overwrite the status. */
     private int subscribeAttempt;
-    /** Whether the calendar list is being read. */
-    private boolean listing;
+    /** The key of the listing under way, or null. Each attempt has its own, so a late reply to an older one is ignored. */
+    private String listKey;
+    private int listAttempt;
     /** The Refresh run waiting on that list, or null when the settings page asked for it. */
     private String listRun;
     /** Why the 10-minute refresh is not running, or null while it is. */
@@ -136,7 +145,7 @@ public final class AgendaPlugin implements KioskPlugin {
             if (Boolean.TRUE.equals(payload.get("open"))) listCalendars(null);
         } else if (event.equals("settings.choices")) {
             if (CALENDAR_CHOICES.equals(payload.get("key"))) listCalendars((String) payload.get("run"));
-        } else if (event.equals("ks.ha.subscription." + LIST)) {
+        } else if (listKey != null && event.equals("ks.ha.subscription." + listKey)) {
             Object type = payload.get("type");
             Object answer = payload.get("event");
             if ("event".equals(type) && answer instanceof Map) {
@@ -161,8 +170,8 @@ public final class AgendaPlugin implements KioskPlugin {
     private void listCalendars(String run) {
         if (!alive || host == null) return;
         // The settings page opening joins a listing on its way without dropping the Refresh run waiting on it.
-        if (run != null || !listing) listRun = run;
-        if (listing) return; // the answer on its way finishes this run too
+        if (run != null || listKey == null) listRun = run;
+        if (listKey != null) return; // the answer on its way finishes this run too
         if (noHomeAssistant) {
             listed("error", "Listing calendars needs Kiosk Satellite 2026.10.35 or later.");
             return;
@@ -171,21 +180,25 @@ public final class AgendaPlugin implements KioskPlugin {
         message.put("type", "render_template");
         message.put("template", LIST_TEMPLATE);
         message.put("report_errors", true);
+        final String key = LIST + ++listAttempt;
+        listKey = key;
         try {
-            host.haSubscribe(LIST, message, (ok, data, error) -> {
-                if (alive && !ok) listed("error", "Home Assistant could not list the calendars: " + error);
+            host.haSubscribe(key, message, (ok, data, error) -> {
+                if (alive && !ok && key.equals(listKey)) listed("error", "Home Assistant could not list the calendars: " + error);
             });
-            listing = true;
         } catch (IllegalStateException busy) {
+            listKey = null;
             listed("error", "Kiosk Satellite is busy. Press Refresh to try again.");
         } catch (UnsupportedOperationException | LinkageError olderHost) {
+            listKey = null;
             noHomeAssistant = true;
             listed("error", "Listing calendars needs Kiosk Satellite 2026.10.35 or later.");
         }
     }
 
     private void publish(Object result) {
-        List<String[]> calendars = parseCalendars(result);
+        List<?> answer = result instanceof List ? (List<?>) result : null;
+        List<String[]> calendars = answer != null && answer.size() == 2 && answer.get(1) instanceof Number ? parseCalendars(answer.get(0)) : null;
         if (calendars == null) {
             listed("error", "Home Assistant sent the calendars in a form this plugin cannot read.");
             return;
@@ -203,13 +216,15 @@ public final class AgendaPlugin implements KioskPlugin {
             listed("error", "Kiosk Satellite refused the calendar list: " + refused.getMessage());
             return;
         }
-        listed("success", ids.length == 0 ? "Home Assistant has no calendars." : ids.length == 1 ? "Found 1 calendar." : "Found " + ids.length + " calendars.");
+        int total = ((Number) answer.get(1)).intValue();
+        if (ids.length < total) listed("success", "Listed " + ids.length + " of " + total + " calendars. The rest do not fit in Kiosk Satellite's limits.");
+        else listed("success", ids.length == 0 ? "Home Assistant has no calendars." : ids.length == 1 ? "Found 1 calendar." : "Found " + ids.length + " calendars.");
     }
 
     /** Ends the listing: one answer is all it needs. Reports on the Refresh run waiting, if any. */
     private void listed(String state, String message) {
-        if (listing) host.haUnsubscribe(LIST);
-        listing = false;
+        if (listKey != null) host.haUnsubscribe(listKey);
+        listKey = null;
         if (listRun != null) host.setupResult(listRun, state, message);
         listRun = null;
     }

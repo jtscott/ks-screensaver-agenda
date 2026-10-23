@@ -54,14 +54,24 @@ public final class AgendaTest {
         }
         public void haSubscribe(String key, Map<String, Object> message, CommandCallback callback) {
             if (noHa) throw new UnsupportedOperationException("Home Assistant access is unavailable");
-            assert key.equals(AgendaPlugin.LIST) ? "render_template".equals(message.get("type")) : "subscribe_trigger".equals(message.get("type"));
+            boolean list = key.startsWith(AgendaPlugin.LIST);
+            assert list ? "render_template".equals(message.get("type")) : "subscribe_trigger".equals(message.get("type"));
             if (subscribeBusy) throw new IllegalStateException("too_many_pending");
             boolean added = haSubscriptions.add(key);
             assert added : "Subscription " + key + " is already active";
-            if (key.equals(AgendaPlugin.LIST)) listed = callback;
+            if (list) {
+                listed = callback;
+                listKey = key;
+            }
             else subscribed = callback;
         }
         CommandCallback listed;
+        /** The key of the latest calendar listing; each attempt has its own. */
+        String listKey;
+        boolean listing() {
+            for (String key : haSubscriptions) if (key.startsWith(AgendaPlugin.LIST)) return true;
+            return false;
+        }
         String choicesKey;
         String[] choiceIds;
         String[] choiceLabels;
@@ -594,7 +604,7 @@ public final class AgendaTest {
         AgendaPlugin picker = new AgendaPlugin();
         picker.start(page, family());
         picker.onEvent("settings.page", settings("open", true));
-        assert page.haSubscriptions.contains(AgendaPlugin.LIST) : page.haSubscriptions;
+        assert page.listing() : page.haSubscriptions;
         page.listed.onResult(true, null, null);
         String longName = new String(new char[100]).replace('\0', 'x');
         List<Object> listRows = new ArrayList<>();
@@ -603,56 +613,71 @@ public final class AgendaTest {
         listRows.add(Arrays.asList("calendar.unnamed", " "));
         listRows.add("not a row");
         listRows.add(Arrays.asList("calendar.long", longName));
-        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", listRows)));
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", Arrays.asList(listRows, 3))));
         assert AgendaPlugin.CALENDAR_CHOICES.equals(page.choicesKey);
         assert Arrays.equals(page.choiceIds, new String[] {"calendar.work", "calendar.unnamed", "calendar.long"}) : Arrays.toString(page.choiceIds);
         assert page.choiceLabels[0].equals("Work") && page.choiceLabels[1].equals("calendar.unnamed") && page.choiceLabels[2].length() == 80;
-        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) : "one answer is enough";
+        assert !page.listing() : "one answer is enough";
         assert page.results.isEmpty() : "an open page needs no run report";
         picker.onEvent("settings.page", settings("open", false));
-        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) : "closing the page reads nothing";
+        assert !page.listing() : "closing the page reads nothing";
         // Refresh reports on its run: a template error, then a list.
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r1"));
-        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("error", "UndefinedError: boom", "level", "ERROR")));
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("error", "UndefinedError: boom", "level", "ERROR")));
         assert page.results.get(page.results.size() - 1).startsWith("r1 error: Home Assistant could not list the calendars") : page.results;
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r2"));
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r3"));
-        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", listRows)));
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", Arrays.asList(listRows, 3))));
         assert page.results.get(page.results.size() - 1).equals("r3 success: Found 3 calendars.") : "a second Refresh waits on the same answer";
         picker.onEvent("settings.choices", settings("key", "something.else", "run", "r4"));
-        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) : "only the Calendar field's Refresh lists calendars";
+        assert !page.listing() : "only the Calendar field's Refresh lists calendars";
         page.subscribeBusy = true;
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r5"));
         assert page.results.get(page.results.size() - 1).startsWith("r5 error: Kiosk Satellite is busy") : page.results;
         page.subscribeBusy = false;
         assert AgendaPlugin.parseCalendars("[['calendar.a', 'A']]") == null : "an unparsed string is not a list";
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r5b"));
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", listRows)));
+        assert page.results.get(page.results.size() - 1).startsWith("r5b error: Home Assistant sent the calendars in a form") : "rows without their total";
         // KS's choice limits hold whatever Home Assistant sends, so publishing never throws into onEvent.
         List<Object> plenty = new ArrayList<>();
         for (int i = 0; i < 205; i++) plenty.add(Arrays.asList("calendar.c" + i, "Calendar " + i));
         plenty.add(0, Arrays.asList("calendar." + new String(new char[600]).replace('\0', 'x'), "Too long an ID"));
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r6"));
-        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", plenty)));
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", Arrays.asList(plenty, plenty.size()))));
         assert page.choiceIds.length == 200 && page.choiceIds[0].equals("calendar.c0") : page.choiceIds.length;
-        assert page.results.get(page.results.size() - 1).equals("r6 success: Found 200 calendars.") : page.results;
+        assert page.results.get(page.results.size() - 1).equals("r6 success: Listed 200 of 206 calendars. The rest do not fit in Kiosk Satellite's limits.") : page.results;
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r7"));
-        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", new ArrayList<Object>())));
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", Arrays.asList(new ArrayList<Object>(), 0))));
         assert page.choiceIds.length == 0 && page.results.get(page.results.size() - 1).equals("r7 success: Home Assistant has no calendars.");
         // A list too big for KS's events ends with an error, and the next Refresh reads again.
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r8"));
-        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "too_large"));
-        assert page.results.get(page.results.size() - 1).startsWith("r8 error: The calendar list is too large") && !page.haSubscriptions.contains(AgendaPlugin.LIST);
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "too_large"));
+        assert page.results.get(page.results.size() - 1).startsWith("r8 error: The calendar list is too large") && !page.listing();
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r9"));
-        assert page.haSubscriptions.contains(AgendaPlugin.LIST) : "Refresh is not stuck behind the failed listing";
+        assert page.listing() : "Refresh is not stuck behind the failed listing";
         // The page opening again while that Refresh waits keeps its run, so the run still gets its answer.
         picker.onEvent("settings.page", settings("open", true));
-        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", listRows)));
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", Arrays.asList(listRows, 3))));
         assert page.results.get(page.results.size() - 1).equals("r9 success: Found 3 calendars.") : page.results;
         // A canceled Refresh stops the listing instead of leaving it to reconnect for nothing.
         picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r10"));
         int reports = page.results.size();
         picker.onEvent("settings.cancel", settings("run", "r10", "reason", "canceled"));
-        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) && page.results.size() == reports : "nothing to report on a canceled run";
+        assert !page.listing() && page.results.size() == reports : "nothing to report on a canceled run";
         picker.onEvent("settings.cancel", settings("run", "someone-else", "reason", "canceled"));
+        // KS answers a canceled subscribe late. That reply belongs to the canceled attempt, not to the one replacing it.
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r11"));
+        PluginHost.CommandCallback canceledReply = page.listed;
+        String canceledKey = page.listKey;
+        picker.onEvent("settings.cancel", settings("run", "r11", "reason", "replaced"));
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r12"));
+        assert !page.listKey.equals(canceledKey) : "each attempt has its own key";
+        canceledReply.onResult(false, null, "unsubscribed: Subscription canceled");
+        picker.onEvent("ks.ha.subscription." + canceledKey, settings("type", "too_large"));
+        assert page.listing() && !page.results.get(page.results.size() - 1).startsWith("r12") : "the replacement is untouched";
+        picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", Arrays.asList(listRows, 3))));
+        assert page.results.get(page.results.size() - 1).equals("r12 success: Found 3 calendars.") : page.results;
 
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();
