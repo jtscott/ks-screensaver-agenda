@@ -48,6 +48,8 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean fetchAgain;
     /** That read came from start or a settings change, so it runs even if the card is hidden by then. */
     private boolean fetchAgainRequired;
+    /** The reads out came from start or a settings change, so the answers they replace may not cover the window now asked for. */
+    private boolean batchRequired;
     /** The latest answer per calendar. It stays until the next one lands, so a refresh never blanks the card. */
     private final Map<String, List<AgendaEvent>> fetched = new HashMap<>();
     private final Map<String, String> errors = new LinkedHashMap<>();
@@ -82,8 +84,8 @@ public final class AgendaPlugin implements KioskPlugin {
         settings = next;
         fetched.keySet().retainAll(next.calendars.keySet());
         errors.keySet().retainAll(next.calendars.keySet());
-        if (refetch) fetch(true);
         merge();
+        if (refetch) fetch(true);
         refresh();
     }
 
@@ -178,6 +180,7 @@ public final class AgendaPlugin implements KioskPlugin {
             fetchAgainRequired |= required;
             return;
         }
+        batchRequired = required;
         ZoneId zone = ZoneId.systemDefault();
         ZonedDateTime from = LocalDate.now(zone).atStartOfDay(zone);
         for (final String calendar : settings.calendars.keySet()) {
@@ -198,10 +201,10 @@ public final class AgendaPlugin implements KioskPlugin {
                     }
                     if (pending == 0 && fetchAgain) {
                         // A read the card asked for is dropped once it is hidden; one settings asked for still runs.
-                        boolean run = fetchAgainRequired || visible;
+                        boolean settingsRead = fetchAgainRequired;
                         fetchAgain = false;
                         fetchAgainRequired = false;
-                        if (run) fetch(true);
+                        if (settingsRead || visible) fetch(settingsRead);
                     }
                 });
                 pending++;
@@ -212,7 +215,8 @@ public final class AgendaPlugin implements KioskPlugin {
                 errors.put(calendar, "busy, trying again at the next refresh");
             }
         }
-        report();
+        // A batch that starts, or that KS turned away whole, can change what the card may say, and no answer may come.
+        refresh();
     }
 
     static Map<String, Object> getEvents(String calendar, ZonedDateTime from, ZonedDateTime to) {
@@ -266,9 +270,11 @@ public final class AgendaPlugin implements KioskPlugin {
     private void refresh() {
         if (!alive || host == null) return;
         follow(saverActive || previewing);
-        // The empty message waits for every calendar's answer, so a read still out or failed never passes for an empty calendar.
-        String empty = settings.emptyMessage != null && !settings.calendars.isEmpty() && errors.isEmpty()
-            && fetched.keySet().containsAll(settings.calendars.keySet()) ? settings.emptyMessage : null;
+        // The empty message needs every calendar's answer with none failed, and no read out or queued from start or a
+        // settings change, whose window the older answers may not cover. A routine refresh keeps it up meanwhile.
+        boolean settled = !settings.calendars.isEmpty() && errors.isEmpty() && fetched.keySet().containsAll(settings.calendars.keySet())
+            && !fetchAgainRequired && !(pending > 0 && batchRequired);
+        String empty = settled ? settings.emptyMessage : null;
         boolean wanted = (saverActive || previewing) && (!events.isEmpty() || empty != null);
         try {
             if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings) || !Objects.equals(empty, shownEmpty))) {

@@ -432,6 +432,36 @@ public final class AgendaTest {
         quiet.haCalls.remove("calendar.work").onResult(false, null, "unknown_error: Calendar unavailable");
         assert ((AgendaCard) quiet.factory).emptyMessage == null : "stale answers must not promise an empty calendar";
 
+        // Reads out: a routine refresh keeps the message up, a wider Days ahead hides it until the new window is read,
+        // and a refresh KS turns away whole takes it down.
+        Host waits = new Host();
+        AgendaPlugin patient = new AgendaPlugin();
+        List<Object> one = Collections.<Object>singletonList(settings("calendar", "calendar.family"));
+        patient.start(waits, settings("calendars", one, "whenEmpty", "Nothing planned", "days", 1));
+        patient.execute("preview", new HashMap<String, Object>());
+        waits.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert waits.haCalls.containsKey("calendar.family") : "the preview's read follows the startup read";
+        assert waits.calls.equals(Arrays.asList("show")) && "Nothing planned".equals(((AgendaCard) waits.factory).emptyMessage)
+            : "a full read of this window may say it is empty while a refresh is out";
+        waits.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        patient.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        assert waits.calls.equals(Arrays.asList("show")) : "a routine refresh keeps the message up";
+        waits.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        patient.configure(settings("calendars", one, "whenEmpty", "Nothing planned", "days", 3));
+        assert waits.calls.get(waits.calls.size() - 1).equals("hide") : "a one-day answer cannot say three days are empty";
+        waits.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert waits.calls.get(waits.calls.size() - 1).equals("show") && "Nothing planned".equals(((AgendaCard) waits.factory).emptyMessage);
+        patient.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        patient.configure(settings("calendars", one, "whenEmpty", "Nothing planned", "days", 7));
+        assert waits.calls.get(waits.calls.size() - 1).equals("hide") : "a wider window queued behind a refresh hides it too";
+        waits.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert waits.calls.get(waits.calls.size() - 1).equals("hide") && waits.haCalls.containsKey("calendar.family") : "until the week is read";
+        waits.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        assert waits.calls.get(waits.calls.size() - 1).equals("show") && "Nothing planned".equals(((AgendaCard) waits.factory).emptyMessage);
+        waits.callBusy = true;
+        patient.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        assert waits.calls.get(waits.calls.size() - 1).equals("hide") && waits.haCalls.isEmpty() : "a refresh turned away whole takes the message down";
+
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();
         old.older = true;

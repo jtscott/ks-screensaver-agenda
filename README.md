@@ -64,7 +64,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 | Title | Family | Empty for none |
 | Days ahead | 3 | Today included |
 | Maximum events | 5 | |
-| When there are no events | Hide the card | Or a message: No upcoming events, All done for today, Nothing planned, Enjoy your free time, or **Custom** with your own **Message**. It shows when nothing is left within Days ahead, such as after today's last event, and only once every calendar has been read, so a failed read never passes for an empty calendar |
+| When there are no events | Hide the card | Or a message: No upcoming events, All done for today, Nothing planned, Enjoy your free time, or **Custom** with your own **Message**. It shows when nothing is left within Days ahead, such as after today's last event, and only once every calendar has been read for the current settings, so a pending or failed read never passes for an empty calendar |
 | Show location | Off | On its own line under the time |
 | Date column | On | Off shows a Today / Tomorrow / date heading above each day instead |
 | Date alignment | Center | Left, Center or Right. Shown while Date column is on |
