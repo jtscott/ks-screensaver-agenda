@@ -121,6 +121,14 @@ final class Agenda {
         return days;
     }
 
+    /**
+     * Whether answers read up to coveredUntil (exclusive) cover the window shown from today. After midnight, or with a
+     * wider Days ahead, they may not, and then they cannot say the calendar is empty.
+     */
+    static boolean covers(LocalDate coveredUntil, LocalDate today, int days) {
+        return coveredUntil != null && !today.plusDays(days).isAfter(coveredUntil);
+    }
+
     /** Calendar Card Pro's countdown: minutes and hours today, then days. Nothing for today's all-day events. */
     static String relative(AgendaEvent e, LocalDate day, ZonedDateTime now) {
         LocalDate today = now.toLocalDate();

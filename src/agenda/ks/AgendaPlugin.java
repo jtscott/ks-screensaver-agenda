@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package agenda.ks;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -48,16 +49,18 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean fetchAgain;
     /** That read came from start or a settings change, so it runs even if the card is hidden by then. */
     private boolean fetchAgainRequired;
-    /** The reads out came from start or a settings change, so the answers they replace may not cover the window now asked for. */
-    private boolean batchRequired;
     /** The latest answer per calendar. It stays until the next one lands, so a refresh never blanks the card. */
     private final Map<String, List<AgendaEvent>> fetched = new HashMap<>();
+    /** The day each calendar's latest answer runs up to, exclusive, so the empty message knows what it covers. */
+    private final Map<String, LocalDate> readUntil = new HashMap<>();
     private final Map<String, String> errors = new LinkedHashMap<>();
     private List<AgendaEvent> events = Collections.emptyList();
     private boolean shown;
     private List<AgendaEvent> shownEvents;
     private AgendaSettings shownSettings;
     private String shownEmpty;
+    /** For tests: what day it is decides which window to read and whether the answers still cover it. */
+    Clock clock = Clock.systemDefaultZone();
 
     @Override public void start(PluginHost host, Map<String, Object> values) {
         this.host = host;
@@ -84,6 +87,7 @@ public final class AgendaPlugin implements KioskPlugin {
         settings = next;
         fetched.keySet().retainAll(next.calendars.keySet());
         errors.keySet().retainAll(next.calendars.keySet());
+        readUntil.keySet().retainAll(next.calendars.keySet());
         merge();
         if (refetch) fetch(true);
         refresh();
@@ -180,9 +184,10 @@ public final class AgendaPlugin implements KioskPlugin {
             fetchAgainRequired |= required;
             return;
         }
-        batchRequired = required;
-        ZoneId zone = ZoneId.systemDefault();
-        ZonedDateTime from = LocalDate.now(zone).atStartOfDay(zone);
+        ZoneId zone = clock.getZone();
+        LocalDate today = LocalDate.now(clock);
+        ZonedDateTime from = today.atStartOfDay(zone);
+        final LocalDate until = today.plusDays(settings.days);
         for (final String calendar : settings.calendars.keySet()) {
             try {
                 host.haCall(getEvents(calendar, from, from.plusDays(settings.days)), (ok, data, error) -> {
@@ -192,6 +197,7 @@ public final class AgendaPlugin implements KioskPlugin {
                     if (settings.calendars.containsKey(calendar)) {
                         if (ok) {
                             fetched.put(calendar, parseResponse(data, calendar));
+                            readUntil.put(calendar, until);
                             errors.remove(calendar);
                         } else {
                             errors.put(calendar, error);
@@ -270,15 +276,15 @@ public final class AgendaPlugin implements KioskPlugin {
     private void refresh() {
         if (!alive || host == null) return;
         follow(saverActive || previewing);
-        // The empty message needs every calendar's answer with none failed, and no read out or queued from start or a
-        // settings change, whose window the older answers may not cover. A routine refresh keeps it up meanwhile.
-        boolean settled = !settings.calendars.isEmpty() && errors.isEmpty() && fetched.keySet().containsAll(settings.calendars.keySet())
-            && !fetchAgainRequired && !(pending > 0 && batchRequired);
-        String empty = settled ? settings.emptyMessage : null;
+        // The empty message needs an answer from every calendar, none failed, covering the window shown now. The card
+        // checks the coverage again each minute, since midnight moves the window before any refresh runs.
+        LocalDate covered = settings.emptyMessage == null ? null : coveredUntil();
+        String empty = Agenda.covers(covered, LocalDate.now(clock), settings.days) ? settings.emptyMessage : null;
         boolean wanted = (saverActive || previewing) && (!events.isEmpty() || empty != null);
         try {
+            // A new covered day always comes with a new day or Days ahead, which change empty or settings too.
             if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings) || !Objects.equals(empty, shownEmpty))) {
-                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty));
+                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty, covered));
                 shown = true;
                 shownEvents = events;
                 shownSettings = settings;
@@ -297,6 +303,18 @@ public final class AgendaPlugin implements KioskPlugin {
             return;
         }
         report();
+    }
+
+    /** The day the latest answers of all the calendars run up to, or null while one has none or one failed. */
+    private LocalDate coveredUntil() {
+        if (!errors.isEmpty() || settings.calendars.isEmpty()) return null;
+        LocalDate covered = LocalDate.MAX;
+        for (String calendar : settings.calendars.keySet()) {
+            LocalDate until = readUntil.get(calendar);
+            if (until == null) return null;
+            if (until.isBefore(covered)) covered = until;
+        }
+        return covered;
     }
 
     private void report() {

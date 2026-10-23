@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package agenda.ks;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.*;
@@ -461,6 +464,43 @@ public final class AgendaTest {
         waits.callBusy = true;
         patient.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
         assert waits.calls.get(waits.calls.size() - 1).equals("hide") && waits.haCalls.isEmpty() : "a refresh turned away whole takes the message down";
+
+        // Answers cover the window they were read for. Midnight moves the window, so yesterday's empty answer cannot
+        // say today is empty: the message waits for today's read.
+        assert Agenda.covers(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 23), 1);
+        assert !Agenda.covers(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 24), 1);
+        assert Agenda.covers(LocalDate.of(2026, 10, 30), LocalDate.of(2026, 10, 24), 3) && !Agenda.covers(null, LocalDate.of(2026, 10, 24), 1);
+        Host night = new Host();
+        AgendaPlugin late = new AgendaPlugin();
+        late.clock = Clock.fixed(Instant.parse("2026-10-24T05:50:00Z"), ZONE); // 23:50 on October 23
+        late.start(night, settings("calendars", one, "whenEmpty", "All done for today", "days", 1));
+        late.execute("preview", new HashMap<String, Object>());
+        night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        AgendaCard evening = (AgendaCard) night.factory;
+        assert "All done for today".equals(evening.emptyMessage) && LocalDate.of(2026, 10, 24).equals(evening.coveredUntil);
+        late.clock = Clock.fixed(Instant.parse("2026-10-24T06:10:00Z"), ZONE); // 00:10 on October 24
+        late.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, tick);
+        assert night.calls.get(night.calls.size() - 1).equals("hide") : "yesterday's answer cannot say today is empty";
+        night.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        AgendaCard morning = (AgendaCard) night.factory;
+        assert night.calls.get(night.calls.size() - 1).equals("show") && "All done for today".equals(morning.emptyMessage)
+            && LocalDate.of(2026, 10, 25).equals(morning.coveredUntil);
+
+        // A calendar removed and added back must be read again before the card may say the agenda is empty.
+        Host again = new Host();
+        AgendaPlugin returning = new AgendaPlugin();
+        returning.start(again, settings("calendars", pair, "whenEmpty", "Nothing planned"));
+        returning.execute("preview", new HashMap<String, Object>());
+        for (int round = 0; round < 2; round++) {
+            again.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+            again.haCalls.remove("calendar.work").onResult(true, answer("calendar.work"), null);
+        }
+        assert again.calls.get(again.calls.size() - 1).equals("show");
+        returning.configure(settings("calendars", one, "whenEmpty", "Nothing planned"));
+        again.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
+        returning.configure(settings("calendars", pair, "whenEmpty", "Nothing planned"));
+        assert again.calls.get(again.calls.size() - 1).equals("hide") && again.haCalls.containsKey("calendar.work") : "work's old answer is gone";
 
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();
