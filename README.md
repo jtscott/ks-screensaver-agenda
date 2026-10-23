@@ -1,9 +1,11 @@
 # Screensaver Agenda
 
-> [!NOTE]
-> This plugin was created with assistance from AI (Claude Code). Every change is tested and reviewed. See [Tested devices](#tested-devices) for the hardware it has run on.
+![The agenda card over a photo screensaver: three race weekend sessions across Saturday and Sunday, each with a date block, an accent bar, its time and a countdown](docs/screenshot.png)
 
 A [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) plugin that shows upcoming events from one or more Home Assistant calendars in a corner, along an edge or in the center of the screensaver, over the Immich slideshow or any other mode.
+
+> [!NOTE]
+> This plugin was created with assistance from AI (Claude Code). Every change is tested and reviewed. See [Tested devices](#tested-devices) for the hardware it has run on.
 
 ## Installation
 
