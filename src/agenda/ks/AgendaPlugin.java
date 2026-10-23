@@ -28,6 +28,13 @@ public final class AgendaPlugin implements KioskPlugin {
     static final String SAVER_EVENT = "screensaver.state";
     /** A Home Assistant time trigger: plugins have no timer of their own. */
     static final String REFRESH = "refresh";
+    /** The Calendar field of each Calendars row, whose picker lists the calendar entities. */
+    static final String CALENDAR_CHOICES = "calendars.calendar";
+    /** A one-answer subscription: render_template is the light way to list one domain's entities. */
+    static final String LIST = "calendarList";
+    /** [[entity_id, name], ...] by name. HA sends the rendered list as JSON. */
+    static final String LIST_TEMPLATE = "{%- set ns = namespace(rows=[]) %}{% for s in states.calendar | sort(attribute='name') %}"
+        + "{% set ns.rows = ns.rows + [[s.entity_id, s.name]] %}{% endfor %}{{ ns.rows }}";
 
     private PluginHost host;
     private boolean alive;
@@ -42,6 +49,10 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean following;
     /** Numbers each subscribe, so a late reply to an earlier one cannot overwrite the status. */
     private int subscribeAttempt;
+    /** Whether the calendar list is being read. */
+    private boolean listing;
+    /** The Refresh run waiting on that list, or null when the settings page asked for it. */
+    private String listRun;
     /** Why the 10-minute refresh is not running, or null while it is. */
     private String refreshError;
     /** get_events calls still out. KS answers each within 25 seconds, with a timeout at worst. */
@@ -120,7 +131,87 @@ public final class AgendaPlugin implements KioskPlugin {
                 refreshError = null;
                 fetch(false);
             }
+        } else if (event.equals("settings.page")) {
+            // Read the calendars while someone looks at the settings, so the picker is fresh without polling.
+            if (Boolean.TRUE.equals(payload.get("open"))) listCalendars(null);
+        } else if (event.equals("settings.choices")) {
+            if (CALENDAR_CHOICES.equals(payload.get("key"))) listCalendars((String) payload.get("run"));
+        } else if (event.equals("ks.ha.subscription." + LIST)) {
+            Object type = payload.get("type");
+            Object answer = payload.get("event");
+            if ("event".equals(type) && answer instanceof Map) {
+                Object error = ((Map<?, ?>) answer).get("error");
+                if (error != null) listed("error", "Home Assistant could not list the calendars: " + error);
+                else publish(((Map<?, ?>) answer).get("result"));
+            } else if ("ended".equals(type)) {
+                listed("error", "Home Assistant stopped listing the calendars. Press Refresh to try again.");
+            }
         }
+    }
+
+    /** Lists the calendar entities in the Calendar picker, so no other kind of entity can be picked. */
+    private void listCalendars(String run) {
+        if (!alive || host == null) return;
+        listRun = run;
+        if (listing) return; // the answer on its way finishes this run too
+        if (noHomeAssistant) {
+            listed("error", "Listing calendars needs Kiosk Satellite 2026.10.35 or later.");
+            return;
+        }
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "render_template");
+        message.put("template", LIST_TEMPLATE);
+        message.put("report_errors", true);
+        try {
+            host.haSubscribe(LIST, message, (ok, data, error) -> {
+                if (alive && !ok) listed("error", "Home Assistant could not list the calendars: " + error);
+            });
+            listing = true;
+        } catch (IllegalStateException busy) {
+            listed("error", "Kiosk Satellite is busy. Press Refresh to try again.");
+        } catch (UnsupportedOperationException | LinkageError olderHost) {
+            noHomeAssistant = true;
+            listed("error", "Listing calendars needs Kiosk Satellite 2026.10.35 or later.");
+        }
+    }
+
+    private void publish(Object result) {
+        List<String[]> calendars = parseCalendars(result);
+        if (calendars == null) {
+            listed("error", "Home Assistant sent the calendars in a form this plugin cannot read.");
+            return;
+        }
+        String[] ids = new String[calendars.size()];
+        String[] labels = new String[calendars.size()];
+        for (int i = 0; i < ids.length; i++) {
+            ids[i] = calendars.get(i)[0];
+            labels[i] = calendars.get(i)[1];
+        }
+        host.setSettingChoices(CALENDAR_CHOICES, ids, labels);
+        listed("success", ids.length == 1 ? "Found 1 calendar." : "Found " + ids.length + " calendars.");
+    }
+
+    /** Ends the listing: one answer is all it needs. */
+    private void listed(String state, String message) {
+        if (listing) host.haUnsubscribe(LIST);
+        listing = false;
+        if (listRun != null) host.setupResult(listRun, state, message);
+        listRun = null;
+    }
+
+    /** The template's [[entity_id, name], ...], calendars only, at most KS's 200 choices with labels of 80 characters. Null if it is not a list. */
+    static List<String[]> parseCalendars(Object result) {
+        if (!(result instanceof List)) return null;
+        List<String[]> out = new ArrayList<>();
+        for (Object row : (List<?>) result) {
+            if (!(row instanceof List) || ((List<?>) row).size() != 2) continue;
+            Object id = ((List<?>) row).get(0);
+            Object name = ((List<?>) row).get(1);
+            if (!(id instanceof String) || !((String) id).startsWith("calendar.") || out.size() == 200) continue;
+            String label = name instanceof String && !((String) name).trim().isEmpty() ? ((String) name).trim() : (String) id;
+            out.add(new String[] {(String) id, label.length() > 80 ? label.substring(0, 79) + "…" : label});
+        }
+        return out;
     }
 
     @Override public void stop() {

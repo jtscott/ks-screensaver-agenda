@@ -27,7 +27,10 @@ Then open the plugin's settings and add your calendars under **Calendars**.
 
 ## Requirements
 
-**Kiosk Satellite 2026.10.25 or later.** Native overlays arrived in 2026.10.13, list settings and `visibleWhen` in 2026.10.23, and plugin calls to Home Assistant in 2026.10.25. KS 2026.10.32 added a built-in **Up next** screensaver widget that covers the rest of today. This plugin adds the coming days.
+> [!WARNING]
+> **Version 2.3.0 is the last that works with Kiosk Satellite before 2026.10.35.** From 2.4.0 the Calendar picker needs plugin choices in list rows, so older Kiosk Satellite versions refuse to install or update to it. Update Kiosk Satellite first, or stay on 2.3.0.
+
+**Kiosk Satellite 2026.10.35 or later.** Native overlays arrived in 2026.10.13, list settings and `visibleWhen` in 2026.10.23, plugin calls to Home Assistant in 2026.10.25, and plugin choices in list rows, which the Calendar picker uses, in 2026.10.35. From 2026.10.36 the picker also shows a hint before the calendars are listed. KS 2026.10.32 added a built-in **Up next** screensaver widget that covers the rest of today. This plugin adds the coming days.
 
 ## Tested devices
 
@@ -62,7 +65,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Calendars | None | Up to 6 calendars. Pick each **Calendar** entity, such as `calendar.family`. Each has a **Name** (after the time, e.g. "6:30 PM - 8:00 PM · Alice"), an **Icon** (before the title) and a **Color** for its accent bar, name and icon. An empty name or icon shows nothing |
+| Calendars | None | Up to 6 calendars. The **Calendar** picker lists only your Home Assistant calendars, read while the settings page is open; **Refresh** reads them again. Each has a **Name** (after the time, e.g. "6:30 PM - 8:00 PM · Alice"), an **Icon** (before the title) and a **Color** for its accent bar, name and icon. An empty name or icon shows nothing |
 | Title | Family | Empty for none |
 | Days ahead | 3 | Today included |
 | Maximum events | 5 | |
@@ -86,7 +89,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 
 ## Data and privacy
 
-The plugin talks only to your Home Assistant, through Kiosk Satellite's existing connection and account. It sends `calendar.get_events` for the calendars you list and, while the screensaver or preview shows, one `time_pattern` trigger subscription for the 10-minute refresh. It makes no network connections of its own, stores nothing outside Kiosk Satellite's plugin settings, and sends no data anywhere else.
+The plugin talks only to your Home Assistant, through Kiosk Satellite's existing connection and account. While its settings page is open, it renders one template that lists your calendar entities for the Calendar picker. It sends `calendar.get_events` for the calendars you list and, while the screensaver or preview shows, one `time_pattern` trigger subscription for the 10-minute refresh. It makes no network connections of its own, stores nothing outside Kiosk Satellite's plugin settings, and sends no data anywhere else.
 
 ## Credits
 

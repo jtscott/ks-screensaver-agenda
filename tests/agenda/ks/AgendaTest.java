@@ -54,11 +54,26 @@ public final class AgendaTest {
         }
         public void haSubscribe(String key, Map<String, Object> message, CommandCallback callback) {
             if (noHa) throw new UnsupportedOperationException("Home Assistant access is unavailable");
-            assert "subscribe_trigger".equals(message.get("type"));
+            assert key.equals(AgendaPlugin.LIST) ? "render_template".equals(message.get("type")) : "subscribe_trigger".equals(message.get("type"));
             if (subscribeBusy) throw new IllegalStateException("too_many_pending");
             boolean added = haSubscriptions.add(key);
             assert added : "Subscription " + key + " is already active";
-            subscribed = callback;
+            if (key.equals(AgendaPlugin.LIST)) listed = callback;
+            else subscribed = callback;
+        }
+        CommandCallback listed;
+        String choicesKey;
+        String[] choiceIds;
+        String[] choiceLabels;
+        final List<String> results = new ArrayList<>();
+        public void setSettingChoices(String key, String[] ids, String[] labels) {
+            choicesKey = key;
+            choiceIds = ids;
+            choiceLabels = labels;
+        }
+        public boolean setupResult(String run, String state, String message) {
+            results.add(run + " " + state + ": " + message);
+            return true;
         }
         public void haUnsubscribe(String key) { haSubscriptions.remove(key); }
         public void subscribe(String event) { subscriptions.add(event); }
@@ -568,6 +583,44 @@ public final class AgendaTest {
         again.haCalls.remove("calendar.family").onResult(true, answer("calendar.family"), null);
         returning.configure(settings("calendars", pair, "whenEmpty", "Nothing planned"));
         assert again.calls.get(again.calls.size() - 1).equals("hide") && again.haCalls.containsKey("calendar.work") : "work's old answer is gone";
+
+        // The Calendar picker lists only calendar entities, read from Home Assistant while the settings page is open.
+        Host page = new Host();
+        AgendaPlugin picker = new AgendaPlugin();
+        picker.start(page, family());
+        picker.onEvent("settings.page", settings("open", true));
+        assert page.haSubscriptions.contains(AgendaPlugin.LIST) : page.haSubscriptions;
+        page.listed.onResult(true, null, null);
+        String longName = new String(new char[100]).replace('\0', 'x');
+        List<Object> listRows = new ArrayList<>();
+        listRows.add(Arrays.asList("calendar.work", "Work"));
+        listRows.add(Arrays.asList("light.kitchen", "Kitchen"));
+        listRows.add(Arrays.asList("calendar.unnamed", " "));
+        listRows.add("not a row");
+        listRows.add(Arrays.asList("calendar.long", longName));
+        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", listRows)));
+        assert AgendaPlugin.CALENDAR_CHOICES.equals(page.choicesKey);
+        assert Arrays.equals(page.choiceIds, new String[] {"calendar.work", "calendar.unnamed", "calendar.long"}) : Arrays.toString(page.choiceIds);
+        assert page.choiceLabels[0].equals("Work") && page.choiceLabels[1].equals("calendar.unnamed") && page.choiceLabels[2].length() == 80;
+        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) : "one answer is enough";
+        assert page.results.isEmpty() : "an open page needs no run report";
+        picker.onEvent("settings.page", settings("open", false));
+        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) : "closing the page reads nothing";
+        // Refresh reports on its run: a template error, then a list.
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r1"));
+        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("error", "UndefinedError: boom", "level", "ERROR")));
+        assert page.results.get(page.results.size() - 1).startsWith("r1 error: Home Assistant could not list the calendars") : page.results;
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r2"));
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r3"));
+        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", listRows)));
+        assert page.results.get(page.results.size() - 1).equals("r3 success: Found 3 calendars.") : "a second Refresh waits on the same answer";
+        picker.onEvent("settings.choices", settings("key", "something.else", "run", "r4"));
+        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) : "only the Calendar field's Refresh lists calendars";
+        page.subscribeBusy = true;
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r5"));
+        assert page.results.get(page.results.size() - 1).startsWith("r5 error: Kiosk Satellite is busy") : page.results;
+        page.subscribeBusy = false;
+        assert AgendaPlugin.parseCalendars("[['calendar.a', 'A']]") == null : "an unparsed string is not a list";
 
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();
