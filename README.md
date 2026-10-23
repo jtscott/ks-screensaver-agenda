@@ -65,7 +65,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Calendars | None | Up to 6 calendars. The **Calendar** picker lists only your Home Assistant calendars, read while the settings page is open; **Refresh** reads them again. Each has a **Name** (after the time, e.g. "6:30 PM - 8:00 PM · Alice"), an **Icon** (before the title) and a **Color** for its accent bar, name and icon. An empty name or icon shows nothing |
+| Calendars | None | Up to 6 calendars. The **Calendar** picker lists only your Home Assistant calendars, up to 200 by name, read while the settings page is open; **Refresh** reads them again. Each has a **Name** (after the time, e.g. "6:30 PM - 8:00 PM · Alice"), an **Icon** (before the title) and a **Color** for its accent bar, name and icon. An empty name or icon shows nothing |
 | Title | Family | Empty for none |
 | Days ahead | 3 | Today included |
 | Maximum events | 5 | |

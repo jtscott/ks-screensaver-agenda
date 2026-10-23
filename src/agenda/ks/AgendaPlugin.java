@@ -32,9 +32,9 @@ public final class AgendaPlugin implements KioskPlugin {
     static final String CALENDAR_CHOICES = "calendars.calendar";
     /** A one-answer subscription: render_template is the light way to list one domain's entities. */
     static final String LIST = "calendarList";
-    /** [[entity_id, name], ...] by name. HA sends the rendered list as JSON. */
-    static final String LIST_TEMPLATE = "{%- set ns = namespace(rows=[]) %}{% for s in states.calendar | sort(attribute='name') %}"
-        + "{% set ns.rows = ns.rows + [[s.entity_id, s.name]] %}{% endfor %}{{ ns.rows }}";
+    /** [[entity_id, name], ...] by name. HA sends the rendered list as JSON. Trimmed to KS's 200 choices of 80-character labels, so it stays under KS's 30 KB event limit. */
+    static final String LIST_TEMPLATE = "{%- set ns = namespace(rows=[]) %}{% for s in (states.calendar | sort(attribute='name'))[:200] %}"
+        + "{% set ns.rows = ns.rows + [[s.entity_id, s.name[:80]]] %}{% endfor %}{{ ns.rows }}";
 
     private PluginHost host;
     private boolean alive;
@@ -143,8 +143,16 @@ public final class AgendaPlugin implements KioskPlugin {
                 Object error = ((Map<?, ?>) answer).get("error");
                 if (error != null) listed("error", "Home Assistant could not list the calendars: " + error);
                 else publish(((Map<?, ?>) answer).get("result"));
-            } else if ("ended".equals(type)) {
+            } else if ("too_large".equals(type)) {
+                listed("error", "The calendar list is too large for Kiosk Satellite. Press Refresh to try again.");
+            } else if ("ended".equals(type) || "overflow".equals(type)) {
                 listed("error", "Home Assistant stopped listing the calendars. Press Refresh to try again.");
+            }
+        } else if (event.equals("settings.cancel")) {
+            // A canceled Refresh needs no answer, so the listing stops instead of reconnecting for nothing.
+            if (listRun != null && listRun.equals(payload.get("run"))) {
+                listRun = null;
+                listed(null, null);
             }
         }
     }
@@ -152,7 +160,8 @@ public final class AgendaPlugin implements KioskPlugin {
     /** Lists the calendar entities in the Calendar picker, so no other kind of entity can be picked. */
     private void listCalendars(String run) {
         if (!alive || host == null) return;
-        listRun = run;
+        // The settings page opening joins a listing on its way without dropping the Refresh run waiting on it.
+        if (run != null || !listing) listRun = run;
         if (listing) return; // the answer on its way finishes this run too
         if (noHomeAssistant) {
             listed("error", "Listing calendars needs Kiosk Satellite 2026.10.35 or later.");
@@ -187,11 +196,17 @@ public final class AgendaPlugin implements KioskPlugin {
             ids[i] = calendars.get(i)[0];
             labels[i] = calendars.get(i)[1];
         }
-        host.setSettingChoices(CALENDAR_CHOICES, ids, labels);
-        listed("success", ids.length == 1 ? "Found 1 calendar." : "Found " + ids.length + " calendars.");
+        try {
+            host.setSettingChoices(CALENDAR_CHOICES, ids, labels);
+        } catch (IllegalArgumentException refused) {
+            // KS checks the list again. A refusal must not escape onEvent, which would end the plugin.
+            listed("error", "Kiosk Satellite refused the calendar list: " + refused.getMessage());
+            return;
+        }
+        listed("success", ids.length == 0 ? "Home Assistant has no calendars." : ids.length == 1 ? "Found 1 calendar." : "Found " + ids.length + " calendars.");
     }
 
-    /** Ends the listing: one answer is all it needs. */
+    /** Ends the listing: one answer is all it needs. Reports on the Refresh run waiting, if any. */
     private void listed(String state, String message) {
         if (listing) host.haUnsubscribe(LIST);
         listing = false;
@@ -199,7 +214,7 @@ public final class AgendaPlugin implements KioskPlugin {
         listRun = null;
     }
 
-    /** The template's [[entity_id, name], ...], calendars only, at most KS's 200 choices with labels of 80 characters. Null if it is not a list. */
+    /** The template's [[entity_id, name], ...], calendars only, within KS's choice limits: 200, IDs of 512 characters, labels of 80. Null if it is not a list. */
     static List<String[]> parseCalendars(Object result) {
         if (!(result instanceof List)) return null;
         List<String[]> out = new ArrayList<>();
@@ -207,7 +222,7 @@ public final class AgendaPlugin implements KioskPlugin {
             if (!(row instanceof List) || ((List<?>) row).size() != 2) continue;
             Object id = ((List<?>) row).get(0);
             Object name = ((List<?>) row).get(1);
-            if (!(id instanceof String) || !((String) id).startsWith("calendar.") || out.size() == 200) continue;
+            if (!(id instanceof String) || !((String) id).startsWith("calendar.") || ((String) id).length() > 512 || out.size() == 200) continue;
             String label = name instanceof String && !((String) name).trim().isEmpty() ? ((String) name).trim() : (String) id;
             out.add(new String[] {(String) id, label.length() > 80 ? label.substring(0, 79) + "…" : label});
         }

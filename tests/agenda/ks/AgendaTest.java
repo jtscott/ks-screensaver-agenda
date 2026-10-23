@@ -67,6 +67,11 @@ public final class AgendaTest {
         String[] choiceLabels;
         final List<String> results = new ArrayList<>();
         public void setSettingChoices(String key, String[] ids, String[] labels) {
+            // KS's own checks, from PluginSetup: a refusal there throws into the plugin.
+            if (ids.length > 200 || new HashSet<>(Arrays.asList(ids)).size() != ids.length) throw new IllegalArgumentException("Choices are at most 200 unique IDs");
+            for (int i = 0; i < ids.length; i++) {
+                if (ids[i].isEmpty() || ids[i].length() > 512 || labels[i].length() > 80) throw new IllegalArgumentException("Choice IDs are 1 to 512 characters, labels at most 80");
+            }
             choicesKey = key;
             choiceIds = ids;
             choiceLabels = labels;
@@ -621,6 +626,33 @@ public final class AgendaTest {
         assert page.results.get(page.results.size() - 1).startsWith("r5 error: Kiosk Satellite is busy") : page.results;
         page.subscribeBusy = false;
         assert AgendaPlugin.parseCalendars("[['calendar.a', 'A']]") == null : "an unparsed string is not a list";
+        // KS's choice limits hold whatever Home Assistant sends, so publishing never throws into onEvent.
+        List<Object> plenty = new ArrayList<>();
+        for (int i = 0; i < 205; i++) plenty.add(Arrays.asList("calendar.c" + i, "Calendar " + i));
+        plenty.add(0, Arrays.asList("calendar." + new String(new char[600]).replace('\0', 'x'), "Too long an ID"));
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r6"));
+        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", plenty)));
+        assert page.choiceIds.length == 200 && page.choiceIds[0].equals("calendar.c0") : page.choiceIds.length;
+        assert page.results.get(page.results.size() - 1).equals("r6 success: Found 200 calendars.") : page.results;
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r7"));
+        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", new ArrayList<Object>())));
+        assert page.choiceIds.length == 0 && page.results.get(page.results.size() - 1).equals("r7 success: Home Assistant has no calendars.");
+        // A list too big for KS's events ends with an error, and the next Refresh reads again.
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r8"));
+        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "too_large"));
+        assert page.results.get(page.results.size() - 1).startsWith("r8 error: The calendar list is too large") && !page.haSubscriptions.contains(AgendaPlugin.LIST);
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r9"));
+        assert page.haSubscriptions.contains(AgendaPlugin.LIST) : "Refresh is not stuck behind the failed listing";
+        // The page opening again while that Refresh waits keeps its run, so the run still gets its answer.
+        picker.onEvent("settings.page", settings("open", true));
+        picker.onEvent("ks.ha.subscription." + AgendaPlugin.LIST, settings("type", "event", "event", settings("result", listRows)));
+        assert page.results.get(page.results.size() - 1).equals("r9 success: Found 3 calendars.") : page.results;
+        // A canceled Refresh stops the listing instead of leaving it to reconnect for nothing.
+        picker.onEvent("settings.choices", settings("key", AgendaPlugin.CALENDAR_CHOICES, "run", "r10"));
+        int reports = page.results.size();
+        picker.onEvent("settings.cancel", settings("run", "r10", "reason", "canceled"));
+        assert !page.haSubscriptions.contains(AgendaPlugin.LIST) && page.results.size() == reports : "nothing to report on a canceled run";
+        picker.onEvent("settings.cancel", settings("run", "someone-else", "reason", "canceled"));
 
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();
