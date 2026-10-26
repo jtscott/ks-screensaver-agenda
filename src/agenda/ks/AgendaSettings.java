@@ -41,6 +41,9 @@ final class AgendaSettings {
     final boolean custom;
     final int x, y;
     final int scale;
+    /** What a tap on the card runs: "openCalendar", "launchApp" with tapPackage, or null to let the tap through. */
+    final String tapCommand;
+    final String tapPackage;
     /** The widest the card may be, in dp of screen, not scaled by Size; 0 for no limit. */
     final int maxWidth;
     final int opacity;
@@ -79,6 +82,12 @@ final class AgendaSettings {
             this.values.remove("y");
         }
         if (!"Custom".equals(whenEmpty)) this.values.remove("emptyMessage");
+        Object tap = values.get("tap");
+        String app = string(values.get("app"), "");
+        boolean openApp = "Open an app".equals(tap);
+        tapPackage = openApp ? app : "";
+        tapCommand = "Open Kiosk Satellite's calendar".equals(tap) ? "openCalendar" : openApp && !app.isEmpty() ? "launchApp" : null;
+        if (!openApp) this.values.remove("app");
         scale = number(values.get("scale"), 100, 60, 200);
         maxWidth = number(values.get("maxWidth"), 0, 0, 4096);
         opacity = number(values.get("opacity"), 55, 0, 90);

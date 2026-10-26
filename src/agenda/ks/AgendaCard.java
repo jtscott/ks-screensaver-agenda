@@ -40,15 +40,21 @@ final class AgendaCard implements OverlayFactory {
     /** The span the answers were read for; the message shows only while it holds the window shown. */
     final Agenda.Window covered;
 
-    AgendaCard(List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered) {
+    /** Runs on a tap on the card, or null when taps go through to wake the kiosk. */
+    final Runnable onTap;
+
+    AgendaCard(List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered, Runnable onTap) {
         this.events = events;
         this.settings = settings;
         this.emptyMessage = emptyMessage;
         this.covered = covered;
+        this.onTap = onTap;
     }
 
     @Override public View create(Context context, KsTheme theme) {
-        return new Card(context, theme, events, settings, emptyMessage, covered);
+        Card card = new Card(context, theme, events, settings, emptyMessage, covered);
+        if (onTap != null) card.setOnClickListener(v -> onTap.run());
+        return card;
     }
 
     @Override public void onDestroy(View view) {

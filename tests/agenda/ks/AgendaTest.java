@@ -25,9 +25,19 @@ public final class AgendaTest {
         boolean missingClass;
         String status;
         boolean statusError;
+        /** Every KS command after the startup screensaver read, as "command {arguments}", and the latest callback per command. */
+        final List<String> commands = new ArrayList<>();
+        final Map<String, CommandCallback> commandCallbacks = new HashMap<>();
+        /** Turns commands away the way KS does over its limits: it throws. */
+        boolean commandsBusy;
         public void executeCommand(String command, Map<String, Object> arguments, CommandCallback callback) {
-            assert command.equals("isScreensaverActive");
-            pendingRead = callback;
+            if (command.equals("isScreensaverActive")) {
+                pendingRead = callback;
+                return;
+            }
+            if (commandsBusy) throw new IllegalStateException("At most 8 KS commands may be pending");
+            commands.add(command + " " + arguments);
+            commandCallbacks.put(command, callback);
         }
         /** The pending get_events callback per calendar, in call order. */
         final Map<String, CommandCallback> haCalls = new LinkedHashMap<>();
@@ -243,6 +253,16 @@ public final class AgendaTest {
         assert defaults.maxWidth == 0 && AgendaSettings.parse(settings("maxWidth", 360.0)).maxWidth == 360;
         assert AgendaSettings.parse(settings("maxWidth", -5)).maxWidth == 0 && AgendaSettings.parse(settings("maxWidth", 99999)).maxWidth == 4096;
         assert !AgendaSettings.parse(settings("maxWidth", 360.0)).equals(AgendaSettings.parse(settings("maxWidth", 420.0)));
+
+        // When tapped: by default taps go through the card; the calendar or an app make it touchable and give it a command.
+        assert defaults.tapCommand == null && !AgendaPlugin.spec(defaults).touchable();
+        AgendaSettings toCalendar = AgendaSettings.parse(settings("tap", "Open Kiosk Satellite's calendar"));
+        assert "openCalendar".equals(toCalendar.tapCommand) && toCalendar.tapPackage.isEmpty() && AgendaPlugin.spec(toCalendar).touchable();
+        AgendaSettings toApp = AgendaSettings.parse(settings("tap", "Open an app", "app", "com.example.calendar"));
+        assert "launchApp".equals(toApp.tapCommand) && toApp.tapPackage.equals("com.example.calendar");
+        assert AgendaSettings.parse(settings("tap", "Open an app")).tapCommand == null : "no app picked, nothing to open";
+        assert AgendaSettings.parse(settings("tap", "Open Kiosk Satellite's calendar", "app", "a"))
+            .equals(AgendaSettings.parse(settings("tap", "Open Kiosk Satellite's calendar", "app", "b"))) : "a hidden app does not redraw";
 
         // Settings clamp to the manifest ranges and map corners.
         AgendaSettings clamped = AgendaSettings.parse(settings("days", 40, "maxEvents", 0, "scale", 500, "corner", "Bottom right"));
@@ -697,6 +717,48 @@ public final class AgendaTest {
         assert page.listing() && !page.results.get(page.results.size() - 1).startsWith("r12") : "the replacement is untouched";
         picker.onEvent("ks.ha.subscription." + page.listKey, settings("type", "event", "event", settings("result", Arrays.asList(listRows, 3))));
         assert page.results.get(page.results.size() - 1).equals("r12 success: Found 3 calendars.") : page.results;
+
+        // A tap on the card opens the app, a failure says what it needs, and over KS's limits a tap does nothing rather
+        // than throw on the main thread.
+        Host tapper = new Host();
+        AgendaPlugin tapping = new AgendaPlugin();
+        Map<String, Object> openApp = family();
+        openApp.put("tap", "Open an app");
+        openApp.put("app", "com.example.calendar");
+        tapping.start(tapper, openApp);
+        tapper.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        tapping.execute("preview", new HashMap<String, Object>());
+        AgendaCard tappable = (AgendaCard) tapper.factory;
+        assert tapper.spec.touchable() && tappable.onTap != null;
+        tappable.onTap.run();
+        assert tapper.commands.contains("launchApp {package=com.example.calendar}") : tapper.commands;
+        tapper.commandCallbacks.get("launchApp").onResult(false, null, "Unknown command launchApp");
+        assert tapper.statusError && tapper.status.contains("2026.10.39") : tapper.status;
+        tapper.commandsBusy = true;
+        tappable.onTap.run();
+        tapper.commandsBusy = false;
+        // The App picker lists the launcher apps while the settings page is open, and Refresh reports on its run.
+        tapper.commands.clear();
+        tapping.onEvent("settings.page", settings("open", true));
+        assert tapper.commands.contains("getLauncherApps {}") : tapper.commands;
+        List<Object> launcher = new ArrayList<>();
+        launcher.add(settings("package", "com.example.calendar", "label", "Calendar"));
+        launcher.add(settings("package", "", "label", "No package"));
+        launcher.add(settings("package", "com.example.calendar", "label", "Twice"));
+        launcher.add(settings("package", "org.example.notes", "label", " "));
+        tapper.commandCallbacks.get("getLauncherApps").onResult(true, launcher, null);
+        assert AgendaPlugin.APP_CHOICES.equals(tapper.choicesKey) && Arrays.equals(tapper.choiceIds, new String[] {"com.example.calendar", "org.example.notes"}) : Arrays.toString(tapper.choiceIds);
+        assert tapper.choiceLabels[0].equals("Calendar") && tapper.choiceLabels[1].equals("org.example.notes");
+        tapping.onEvent("settings.choices", settings("key", AgendaPlugin.APP_CHOICES, "run", "a1"));
+        tapper.commandCallbacks.get("getLauncherApps").onResult(false, null, "Unknown command getLauncherApps");
+        assert tapper.results.get(tapper.results.size() - 1).startsWith("a1 error: Kiosk Satellite could not list its apps") && tapper.results.get(tapper.results.size() - 1).contains("2026.10.39");
+        tapper.commandsBusy = true;
+        tapping.onEvent("settings.choices", settings("key", AgendaPlugin.APP_CHOICES, "run", "a2"));
+        assert tapper.results.get(tapper.results.size() - 1).startsWith("a2 error: Kiosk Satellite is busy");
+        tapper.commandsBusy = false;
+        // Wake the screen leaves the card visual only, with nothing to run on a tap.
+        tapping.configure(family());
+        assert !tapper.spec.touchable() && ((AgendaCard) tapper.factory).onTap == null;
 
         // An older KS without overlays reports it instead of failing.
         Host old = new Host();

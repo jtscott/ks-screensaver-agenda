@@ -7,13 +7,14 @@
   "minAndroidSdk": 26,
   "minAppVersion": "2026.10.35",
   "entryClass": "agenda.ks.AgendaPlugin",
-  "description": "Shows upcoming events from one or more Home Assistant calendars in a corner, along an edge or in the center of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. The card is visual only: touches pass through and still dismiss the screensaver.",
+  "description": "Shows upcoming events from one or more Home Assistant calendars in a corner, along an edge or in the center of the screensaver, over Immich photos or any other mode, laid out like Calendar Card Pro with a color per calendar. It reads the calendars through Kiosk Satellite's own Home Assistant connection, so it needs no token or helper sensor. Touches pass through and wake the kiosk, or a tap on the card can open Kiosk Satellite's calendar or an app.",
   "author": "jtscott",
   "license": "Apache-2.0",
   "icon": "icon.png",
   "capabilities": [
     "overlay",
     "host.read",
+    "host.control",
     "ha"
   ],
   "groups": [
@@ -28,6 +29,9 @@
     },
     {
       "title": "Layout"
+    },
+    {
+      "title": "Tap"
     }
   ],
   "settings": [
@@ -434,6 +438,33 @@
       "unit": "%",
       "group": "Layout",
       "description": "How dark the card behind the text is. 0 draws text only."
+    },
+    {
+      "key": "tap",
+      "type": "select",
+      "title": "When tapped",
+      "default": "Wake the screen",
+      "options": [
+        "Wake the screen",
+        "Open Kiosk Satellite's calendar",
+        "Open an app"
+      ],
+      "group": "Tap",
+      "description": "Wake the screen lets a tap on the card through, like a tap anywhere else. The other choices make the card open Kiosk Satellite's calendar, or an app from Settings > App Launcher > Apps."
+    },
+    {
+      "key": "app",
+      "type": "string",
+      "title": "App",
+      "default": "",
+      "choices": "plugin",
+      "group": "Tap",
+      "visibleWhen": {
+        "key": "tap",
+        "equals": "Open an app"
+      },
+      "emptyText": "No apps listed yet. Add apps under Settings > App Launcher > Apps, then press Refresh.",
+      "description": "The apps under Settings > App Launcher > Apps that Kiosk Satellite lets plugins open. Needs Kiosk Satellite 2026.10.39 or later."
     }
   ],
   "commands": [

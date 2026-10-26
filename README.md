@@ -50,7 +50,7 @@ adb shell 'getprop ro.product.device; getprop ro.build.version.release; getprop 
 - **One calendar's limits stay its own.** KS caps each answer at 32 KB. A calendar whose events (descriptions included) go over shows an error in the plugin's status naming that calendar, and the others still show.
 - **Auto-refresh needs an admin Home Assistant user.** Home Assistant only lets admin users subscribe to triggers. If Kiosk Satellite signs in as a non-admin user, the plugin's status says "Auto-refresh stopped", and the card updates only when the screensaver or preview starts or a calendar setting changes.
 - **It shows one native overlay** while the screensaver runs and hides it when the screensaver ends.
-- **The card is visual only.** It is drawn with `onTop(true)` and `touchable(false)`, so it sits above the screensaver and a tap still wakes the kiosk. Back does not close it.
+- **A tap wakes the kiosk, or opens something.** By default the card is visual only (`touchable(false)`), so a tap on it wakes the kiosk like a tap anywhere else. With **When tapped**, a tap on the card opens Kiosk Satellite's calendar or an app from **App Launcher > Apps** instead; taps elsewhere still wake the kiosk. Back does not close it.
 - **It stays current on its own.** The card redraws on each minute, so countdowns and finished events stay right between reads.
 
 The layout follows [Calendar Card Pro](https://github.com/alexpfau/calendar-card-pro) (see [Credits](#credits)). Each day gets a date block (Wed / 21 / OCT). Each event gets an accent bar in its calendar's color and shows:
@@ -83,6 +83,8 @@ All-day events come first. An overnight or multi-day event appears once, under t
 | Position | Top left | Where this card sits: a corner, the middle of an edge, the center, or **Custom**. It is not a Kiosk Satellite widget, so **Settings > Screensaver > Widgets** does not place it. Pick a spot those widgets leave empty |
 | X, Y | 24, 24 dp | Shown for **Custom**: the card's distance from the left and top edges of the screen, such as just under the clock widget. Kiosk Satellite keeps the card on screen. Typed number fields on Kiosk Satellite 2026.10.35 or later, sliders before |
 | Size | 100% | |
+| When tapped | Wake the screen | Or **Open Kiosk Satellite's calendar**, or **Open an app** |
+| App | None | Shown for **Open an app**: the apps under **Settings > App Launcher > Apps** that Kiosk Satellite lets plugins open, listed while the settings page is open. Needs Kiosk Satellite 2026.10.39 or later |
 | Maximum width | 0 (no limit) | The widest the card may be, in dp of screen. Long titles wrap within **Title lines** and end in "…", and the time line shortens |
 | Background opacity | 55% | 0 draws text only |
 

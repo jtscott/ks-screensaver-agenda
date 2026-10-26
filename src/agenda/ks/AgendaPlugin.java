@@ -10,10 +10,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import me.jxl.kiosk.plugins.KioskPlugin;
 import me.jxl.kiosk.plugins.OverlaySpec;
 import me.jxl.kiosk.plugins.PluginHost;
@@ -30,6 +32,8 @@ public final class AgendaPlugin implements KioskPlugin {
     static final String REFRESH = "refresh";
     /** The Calendar field of each Calendars row, whose picker lists the calendar entities. */
     static final String CALENDAR_CHOICES = "calendars.calendar";
+    /** The App setting, whose picker lists the launcher apps a plugin may open. */
+    static final String APP_CHOICES = "app";
     /** A one-answer subscription, numbered per attempt: render_template is the light way to list one domain's entities. */
     static final String LIST = "calendarList";
     /**
@@ -147,9 +151,13 @@ public final class AgendaPlugin implements KioskPlugin {
             }
         } else if (event.equals("settings.page")) {
             // Read the calendars while someone looks at the settings, so the picker is fresh without polling.
-            if (Boolean.TRUE.equals(payload.get("open"))) listCalendars(null);
+            if (Boolean.TRUE.equals(payload.get("open"))) {
+                listCalendars(null);
+                listApps(null);
+            }
         } else if (event.equals("settings.choices")) {
             if (CALENDAR_CHOICES.equals(payload.get("key"))) listCalendars((String) payload.get("run"));
+            else if (APP_CHOICES.equals(payload.get("key"))) listApps((String) payload.get("run"));
         } else if (listKey != null && event.equals("ks.ha.subscription." + listKey)) {
             Object type = payload.get("type");
             Object answer = payload.get("event");
@@ -397,8 +405,9 @@ public final class AgendaPlugin implements KioskPlugin {
     }
 
     static OverlaySpec spec(AgendaSettings settings) {
-        // Over the screensaver like the voice overlay, visual only so a tap still wakes the kiosk, and Back leaves it alone.
-        OverlaySpec spec = OverlaySpec.at(settings.anchor).onTop(true).touchable(false).closeOnBack(false);
+        // Over the screensaver like the voice overlay, and Back leaves it alone. Visual only, so a tap still wakes the
+        // kiosk, unless a tap on the card opens something.
+        OverlaySpec spec = OverlaySpec.at(settings.anchor).onTop(true).touchable(settings.tapCommand != null).closeOnBack(false);
         // From the top left with no inset, the offset is the card's position.
         if (settings.custom) return spec.offset(settings.x, settings.y);
         return spec.inset(Math.round(24 * settings.scale / 100f));
@@ -415,7 +424,7 @@ public final class AgendaPlugin implements KioskPlugin {
         try {
             if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings)
                     || !Objects.equals(empty, shownEmpty) || !Objects.equals(covered, shownCovered))) {
-                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty, covered));
+                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty, covered, tap(settings)));
                 shown = true;
                 shownEvents = events;
                 shownSettings = settings;
@@ -435,6 +444,75 @@ public final class AgendaPlugin implements KioskPlugin {
             return;
         }
         report();
+    }
+
+    /** What a tap on the card runs: Kiosk Satellite's calendar or a launcher app, or null so the tap wakes the kiosk. */
+    private Runnable tap(AgendaSettings settings) {
+        if (settings.tapCommand == null) return null;
+        final PluginHost tapHost = host;
+        final String command = settings.tapCommand;
+        final Map<String, Object> arguments = settings.tapPackage.isEmpty()
+            ? Collections.<String, Object>emptyMap() : Collections.<String, Object>singletonMap("package", settings.tapPackage);
+        return () -> {
+            // The card's click runs on the main thread, where an exception would end the app.
+            try {
+                tapHost.executeCommand(command, arguments, (ok, data, error) -> {
+                    if (ok || !alive) return;
+                    tapHost.status("launchApp".equals(command)
+                        ? "Could not open the app: " + error + ". Opening apps needs Kiosk Satellite 2026.10.39 or later."
+                        : "Could not open the calendar: " + error + ".", true);
+                });
+            } catch (RuntimeException refused) {
+                // Over KS's command limits, or the session ended: this tap does nothing.
+            }
+        };
+    }
+
+    /** Lists the apps a plugin may open in the App picker, the ones under Settings > App Launcher > Apps. */
+    private void listApps(String run) {
+        if (!alive || host == null) return;
+        try {
+            host.executeCommand("getLauncherApps", Collections.<String, Object>emptyMap(), (ok, data, error) -> {
+                if (!alive) return;
+                if (!ok) {
+                    if (run != null) host.setupResult(run, "error", "Kiosk Satellite could not list its apps: " + error + ". Opening apps needs Kiosk Satellite 2026.10.39 or later.");
+                    return;
+                }
+                List<String[]> apps = parseApps(data);
+                String[] ids = new String[apps.size()];
+                String[] labels = new String[apps.size()];
+                for (int i = 0; i < ids.length; i++) {
+                    ids[i] = apps.get(i)[0];
+                    labels[i] = apps.get(i)[1];
+                }
+                try {
+                    host.setSettingChoices(APP_CHOICES, ids, labels);
+                } catch (IllegalArgumentException refused) {
+                    if (run != null) host.setupResult(run, "error", "Kiosk Satellite refused the app list: " + refused.getMessage());
+                    return;
+                }
+                if (run != null) host.setupResult(run, "success", ids.length == 0 ? "No apps to open. Add them under Settings > App Launcher > Apps."
+                    : ids.length == 1 ? "Found 1 app." : "Found " + ids.length + " apps.");
+            });
+        } catch (IllegalStateException busy) {
+            if (run != null) host.setupResult(run, "error", "Kiosk Satellite is busy. Press Refresh to try again.");
+        }
+    }
+
+    /** getLauncherApps' [{package, label}, ...], within KS's choice limits: 200 unique IDs of 512 characters, labels of 80. */
+    static List<String[]> parseApps(Object data) {
+        List<String[]> out = new ArrayList<>();
+        if (!(data instanceof List)) return out;
+        Set<String> seen = new HashSet<>();
+        for (Object item : (List<?>) data) {
+            if (!(item instanceof Map) || out.size() == 200) continue;
+            Object app = ((Map<?, ?>) item).get("package");
+            Object name = ((Map<?, ?>) item).get("label");
+            if (!(app instanceof String) || ((String) app).isEmpty() || ((String) app).length() > 512 || !seen.add((String) app)) continue;
+            String label = name instanceof String && !((String) name).trim().isEmpty() ? ((String) name).trim() : (String) app;
+            out.add(new String[] {(String) app, label.length() > 80 ? label.substring(0, 79) + "…" : label});
+        }
+        return out;
     }
 
     /** The span every calendar's latest answer covers, or null while one has none or one failed. */
