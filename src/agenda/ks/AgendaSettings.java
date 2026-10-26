@@ -41,6 +41,8 @@ final class AgendaSettings {
     final boolean custom;
     final int x, y;
     final int scale;
+    /** The widest the card may be, in dp of screen, not scaled by Size; 0 for no limit. */
+    final int maxWidth;
     final int opacity;
     final boolean dateColumn;
     /** "Left", "Center" or "Right": how the date column's three lines line up. */
@@ -78,6 +80,7 @@ final class AgendaSettings {
         }
         if (!"Custom".equals(whenEmpty)) this.values.remove("emptyMessage");
         scale = number(values.get("scale"), 100, 60, 200);
+        maxWidth = number(values.get("maxWidth"), 0, 0, 4096);
         opacity = number(values.get("opacity"), 55, 0, 90);
         dateColumn = flag(values.get("dateColumn"), true);
         dateAlign = "Left".equals(values.get("dateAlign")) || "Right".equals(values.get("dateAlign")) ? (String) values.get("dateAlign") : "Center";

@@ -106,6 +106,20 @@ final class AgendaCard implements OverlayFactory {
             super.onDetachedFromWindow();
         }
 
+        /**
+         * Maximum width caps what the card accepts. The layouts inside pass the width left down, so the event column
+         * gives up the difference: titles wrap within Title lines and the time line shortens.
+         */
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            if (settings.maxWidth > 0) {
+                int max = theme.px(settings.maxWidth);
+                int mode = MeasureSpec.getMode(widthSpec);
+                int width = mode == MeasureSpec.UNSPECIFIED ? max : Math.min(MeasureSpec.getSize(widthSpec), max);
+                widthSpec = MeasureSpec.makeMeasureSpec(width, mode == MeasureSpec.EXACTLY ? MeasureSpec.EXACTLY : MeasureSpec.AT_MOST);
+            }
+            super.onMeasure(widthSpec, heightSpec);
+        }
+
         void halt() {
             running = false;
             removeCallbacks(tick);

@@ -239,6 +239,11 @@ public final class AgendaTest {
         assert AgendaSettings.parse(settings("whenEmpty", "Nothing planned", "emptyMessage", "a"))
             .equals(AgendaSettings.parse(settings("whenEmpty", "Nothing planned", "emptyMessage", "b"))) : "a hidden message does not redraw";
 
+        // Maximum width: none by default, kept within the manifest range, and part of the card, so a change redraws it.
+        assert defaults.maxWidth == 0 && AgendaSettings.parse(settings("maxWidth", 360.0)).maxWidth == 360;
+        assert AgendaSettings.parse(settings("maxWidth", -5)).maxWidth == 0 && AgendaSettings.parse(settings("maxWidth", 99999)).maxWidth == 4096;
+        assert !AgendaSettings.parse(settings("maxWidth", 360.0)).equals(AgendaSettings.parse(settings("maxWidth", 420.0)));
+
         // Settings clamp to the manifest ranges and map corners.
         AgendaSettings clamped = AgendaSettings.parse(settings("days", 40, "maxEvents", 0, "scale", 500, "corner", "Bottom right"));
         assert clamped.days == 7 && clamped.maxEvents == 1 && clamped.scale == 200 && clamped.anchor.equals(OverlaySpec.BOTTOM_RIGHT);

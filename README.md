@@ -83,6 +83,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 | Position | Top left | Where this card sits: a corner, the middle of an edge, the center, or **Custom**. It is not a Kiosk Satellite widget, so **Settings > Screensaver > Widgets** does not place it. Pick a spot those widgets leave empty |
 | X, Y | 24, 24 dp | Shown for **Custom**: the card's distance from the left and top edges of the screen, such as just under the clock widget. Kiosk Satellite keeps the card on screen. Typed number fields on Kiosk Satellite 2026.10.35 or later, sliders before |
 | Size | 100% | |
+| Maximum width | 0 (no limit) | The widest the card may be, in dp of screen. Long titles wrap within **Title lines** and end in "…", and the time line shortens |
 | Background opacity | 55% | 0 draws text only |
 
 **Show preview** and **Hide preview** (plugin actions) display the card without the screensaver, for placing it.
