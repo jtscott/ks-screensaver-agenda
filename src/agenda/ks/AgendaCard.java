@@ -177,7 +177,9 @@ final class AgendaCard implements OverlayFactory {
 
         /**
          * KS measures the card even while it is gone and sizes the overlay, and the area it catches touches in, to it.
-         * Without padding an empty card measures 0 by 0, so a tappable card with nothing to show blocks no taps.
+         * Without padding an empty card measures 0 by 0, which KS's Flutter side floors at 1 by 1 logical pixel.
+         * shortcut: a tappable card with nothing to show still catches taps on that one pixel at its anchor; drop this
+         * note once KS ignores touches on a wrapped overlay that reports an empty size.
          */
         private void vanish() {
             setPadding(0, 0, 0, 0);
