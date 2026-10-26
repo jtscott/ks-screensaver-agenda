@@ -66,6 +66,11 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean following;
     /** Numbers each subscribe, so a late reply to an earlier one cannot overwrite the status. */
     private int subscribeAttempt;
+    /** Numbers each app listing, so a reply to a canceled or older one publishes nothing. */
+    private int appAttempt;
+    private boolean appListing;
+    /** The App field's Refresh run waiting on the app list, or null. */
+    private String appRun;
     /** The key of the listing under way, or null. Each attempt has its own, so a late reply to an older one is ignored. */
     private String listKey;
     private int listAttempt;
@@ -175,6 +180,10 @@ public final class AgendaPlugin implements KioskPlugin {
             if (listRun != null && listRun.equals(payload.get("run"))) {
                 listRun = null;
                 listed(null, null);
+            } else if (appRun != null && appRun.equals(payload.get("run"))) {
+                appRun = null;
+                appListing = false;
+                appAttempt++;
             }
         }
     }
@@ -469,11 +478,19 @@ public final class AgendaPlugin implements KioskPlugin {
     }
 
     /** Lists the apps a plugin may open in the App picker, the ones under Settings > App Launcher > Apps. */
-    private void listApps(String run) {
+    private void listApps(String request) {
         if (!alive || host == null) return;
+        // The settings page opening joins a listing on its way without dropping the Refresh run waiting on it.
+        if (request != null || !appListing) appRun = request;
+        if (appListing) return;
+        final int attempt = ++appAttempt;
+        appListing = true;
         try {
             host.executeCommand("getLauncherApps", Collections.<String, Object>emptyMap(), (ok, data, error) -> {
-                if (!alive) return;
+                if (!alive || attempt != appAttempt) return;
+                appListing = false;
+                String run = appRun;
+                appRun = null;
                 if (!ok) {
                     if (run != null) host.setupResult(run, "error", "Kiosk Satellite could not list its apps: " + error + ". Opening apps needs Kiosk Satellite 2026.10.39 or later.");
                     return;
@@ -495,7 +512,9 @@ public final class AgendaPlugin implements KioskPlugin {
                     : ids.length == 1 ? "Found 1 app." : "Found " + ids.length + " apps.");
             });
         } catch (IllegalStateException busy) {
-            if (run != null) host.setupResult(run, "error", "Kiosk Satellite is busy. Press Refresh to try again.");
+            appListing = false;
+            if (appRun != null) host.setupResult(appRun, "error", "Kiosk Satellite is busy. Press Refresh to try again.");
+            appRun = null;
         }
     }
 

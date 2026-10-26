@@ -91,7 +91,6 @@ final class AgendaCard implements OverlayFactory {
             this.k = settings.scale / 100f;
             for (Map.Entry<String, AgendaSettings.Style> calendar : settings.calendars.entrySet()) colors.put(calendar.getKey(), parseColor(calendar.getValue().color));
             setOrientation(VERTICAL);
-            setPadding(dp(18), dp(16), dp(22), dp(16));
             if (settings.opacity > 0) {
                 GradientDrawable glass = new GradientDrawable();
                 glass.setColor(Color.argb(Math.round(settings.opacity * 2.55f), 0, 0, 0));
@@ -148,9 +147,10 @@ final class AgendaCard implements OverlayFactory {
                 // midnight, or in a new zone, the answers no longer cover the window, so no message until the next read.
                 String message = covered != null && covered.covers(now, settings.days) ? emptyMessage : null;
                 if (days.isEmpty() && message == null) {
-                    setVisibility(GONE);
+                    vanish();
                     return;
                 }
+                setPadding(dp(18), dp(16), dp(22), dp(16));
                 setVisibility(VISIBLE);
                 boolean first = true;
                 if (!settings.title.isEmpty()) {
@@ -170,8 +170,18 @@ final class AgendaCard implements OverlayFactory {
                     first = false;
                 }
             } catch (RuntimeException failed) {
-                setVisibility(GONE);
+                removeAllViews();
+                vanish();
             }
+        }
+
+        /**
+         * KS measures the card even while it is gone and sizes the overlay, and the area it catches touches in, to it.
+         * Without padding an empty card measures 0 by 0, so a tappable card with nothing to show blocks no taps.
+         */
+        private void vanish() {
+            setPadding(0, 0, 0, 0);
+            setVisibility(GONE);
         }
 
         private LinearLayout day(Agenda.Day day) {

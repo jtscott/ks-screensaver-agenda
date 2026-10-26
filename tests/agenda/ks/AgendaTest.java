@@ -756,6 +756,28 @@ public final class AgendaTest {
         tapping.onEvent("settings.choices", settings("key", AgendaPlugin.APP_CHOICES, "run", "a2"));
         assert tapper.results.get(tapper.results.size() - 1).startsWith("a2 error: Kiosk Satellite is busy");
         tapper.commandsBusy = false;
+        // A canceled App Refresh publishes nothing when its answer comes late, and the page opening while a Refresh waits
+        // keeps that run, so it still gets its answer.
+        String[] listedApps = tapper.choiceIds;
+        tapping.onEvent("settings.choices", settings("key", AgendaPlugin.APP_CHOICES, "run", "a3"));
+        PluginHost.CommandCallback canceledApps = tapper.commandCallbacks.get("getLauncherApps");
+        int appReports = tapper.results.size();
+        tapping.onEvent("settings.cancel", settings("run", "a3", "reason", "canceled"));
+        canceledApps.onResult(true, Collections.singletonList(settings("package", "canceled.app", "label", "Canceled")), null);
+        assert tapper.choiceIds == listedApps && tapper.results.size() == appReports : "a canceled Refresh changes nothing";
+        tapping.onEvent("settings.choices", settings("key", AgendaPlugin.APP_CHOICES, "run", "a4"));
+        tapper.commands.clear();
+        tapping.onEvent("settings.page", settings("open", true));
+        assert !tapper.commands.contains("getLauncherApps {}") : "the page joins the listing on its way";
+        tapper.commandCallbacks.get("getLauncherApps").onResult(true, launcher, null);
+        assert tapper.results.get(tapper.results.size() - 1).equals("a4 success: Found 2 apps.") : tapper.results;
+        // KS's choice limits hold for apps too: 200 at most, IDs of 512 characters at most.
+        List<Object> manyApps = new ArrayList<>();
+        manyApps.add(settings("package", "app." + new String(new char[600]).replace('\0', 'x'), "label", "Too long"));
+        for (int i = 0; i < 205; i++) manyApps.add(settings("package", "app.a" + i, "label", "App " + i));
+        List<String[]> parsedApps = AgendaPlugin.parseApps(manyApps);
+        assert parsedApps.size() == 200 && parsedApps.get(0)[0].equals("app.a0") : parsedApps.size();
+
         // Wake the screen leaves the card visual only, with nothing to run on a tap.
         tapping.configure(family());
         assert !tapper.spec.touchable() && ((AgendaCard) tapper.factory).onTap == null;
