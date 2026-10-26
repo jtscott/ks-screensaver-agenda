@@ -77,7 +77,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 | Show end time | On | |
 | Clock icon | On | Also the location's map pin |
 | Relative time | On | now, in 5 hours, tomorrow, in 2 days |
-| Title lines | 2 | 1 to 3 |
+| Title lines | 2 | 1 keeps each title on one line, ending in "…" when it does not fit. 2 or 3 let long titles wrap first |
 | Text sizes | 12 / 15 / 34 / 13 / 13 / 17 / 14 / 14 sp | Title, weekday, day number, month, day heading, event title, time and location, relative time. Each shows only while its text does. Size scales them all |
 | Clock format | 12-hour | |
 | Position | Top left | Where this card sits: a corner, the middle of an edge, the center, or **Custom**. It is not a Kiosk Satellite widget, so **Settings > Screensaver > Widgets** does not place it. Pick a spot those widgets leave empty |
