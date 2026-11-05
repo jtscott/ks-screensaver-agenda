@@ -8,6 +8,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -28,6 +29,8 @@ import me.jxl.kiosk.plugins.PluginHost;
 public final class AgendaPlugin implements KioskPlugin {
     static final String OVERLAY = "agenda";
     static final String SAVER_EVENT = "screensaver.state";
+    /** Whether the Clock screensaver shows its Night colors, and which. */
+    static final String APPEARANCE_EVENT = "screensaver.appearance";
     /** A Home Assistant time trigger: plugins have no timer of their own. */
     static final String REFRESH = "refresh";
     /** The Calendar field of each Calendars row, whose picker lists the calendar entities. */
@@ -57,6 +60,14 @@ public final class AgendaPlugin implements KioskPlugin {
     private boolean alive;
     private AgendaSettings settings;
     private int saverRevision;
+    private int appearanceRevision;
+    /** [text, background] while the Clock shows its Night colors, else null. */
+    private int[] night;
+    /** The Clock hides its widgets at night (Hide widgets and At a Glance), or the screen is blanked: the cards hide too. */
+    private boolean cleared;
+    /** Hidden while KS says whether the screensaver still runs, after a cleared Clock lost its view. */
+    private boolean held;
+    private int[] shownNight;
     private boolean saverActive;
     private boolean previewing;
     private boolean noHomeAssistant;
@@ -103,6 +114,18 @@ public final class AgendaPlugin implements KioskPlugin {
         alive = true;
         settings = AgendaSettings.parse(values);
         host.subscribe(SAVER_EVENT);
+        // The appearance read goes first: KS answers it at once, so its slot is free before the screensaver answer
+        // subscribes the refresh trigger, and start's eight requests (with six calendars) never fill KS's budget.
+        try {
+            host.subscribe(APPEARANCE_EVENT);
+            final int seen = appearanceRevision;
+            host.executeCommand("getScreensaverAppearance", Collections.<String, Object>emptyMap(), (ok, data, error) -> {
+                if (!alive || seen != appearanceRevision || !ok || !(data instanceof Map)) return;
+                appearance((Map<?, ?>) data);
+            });
+        } catch (IllegalArgumentException olderHost) {
+            // KS 2026.10.39 and older ignore minAppVersion and know no such event: the card keeps its own colors.
+        }
         final int revision = saverRevision;
         host.executeCommand("isScreensaverActive", Collections.<String, Object>emptyMap(), (ok, data, error) -> {
             // An event that arrived after the read was sent is newer, so it wins.
@@ -114,6 +137,46 @@ public final class AgendaPlugin implements KioskPlugin {
         });
         fetch(true);
         refresh();
+    }
+
+    private void appearance(Map<?, ?> appearance) {
+        boolean wasCleared = cleared;
+        night = night(appearance);
+        // The Clock hides its widgets at night, or the screen is blanked (Night mode's black screen-off, the screen-off
+        // timer), where KS draws nothing of its own.
+        cleared = Boolean.TRUE.equals(appearance.get("widgetsHidden")) || "blank".equals(appearance.get("view"));
+        // KS clears the view as it dismisses the screensaver and says so only after a few more steps, so a cleared face
+        // losing its view would show the cards for a moment. A Dim screensaver has no view either: until KS answers
+        // whether the screensaver still runs, they stay hidden.
+        held = wasCleared && !cleared && saverActive && appearance.get("view") == null;
+        if (held) {
+            final int revision = saverRevision, seen = appearanceRevision;
+            try {
+                host.executeCommand("isScreensaverActive", Collections.<String, Object>emptyMap(), (ok, data, error) -> {
+                    // A newer state or appearance event has decided already.
+                    if (!alive || revision != saverRevision || seen != appearanceRevision) return;
+                    if (ok) saverActive = Boolean.TRUE.equals(data);
+                    held = false;
+                    refresh();
+                });
+            } catch (IllegalStateException busy) {
+                held = false; // Without an answer to wait for, show as before.
+            }
+        }
+        refresh();
+    }
+
+
+    /**
+     * [text, background] from getScreensaverAppearance or its event while the Clock shows Night colors, else null. The
+     * Flip style's card color goes behind the card, or the night background. Colors are ARGB numbers: one above 2^31
+     * arrives as a Long (or a Double), where intValue would clamp a Double, so the low 32 bits come through longValue.
+     */
+    static int[] night(Map<?, ?> appearance) {
+        Object text = appearance.get("textColor"), card = appearance.get("cardColor"), background = appearance.get("backgroundColor");
+        if (!Boolean.TRUE.equals(appearance.get("night")) || !(text instanceof Number)) return null;
+        Object behind = card instanceof Number ? card : background instanceof Number ? background : null;
+        return new int[] {(int) ((Number) text).longValue(), behind == null ? 0xFF000000 : (int) ((Number) behind).longValue()};
     }
 
     @Override public void configure(Map<String, Object> values) {
@@ -140,7 +203,11 @@ public final class AgendaPlugin implements KioskPlugin {
         if (event.equals("ks." + SAVER_EVENT)) {
             saverRevision++;
             saverActive = Boolean.TRUE.equals(payload.get("active"));
+            held = false;
             refresh();
+        } else if (event.equals("ks." + APPEARANCE_EVENT)) {
+            appearanceRevision++;
+            appearance(payload);
         } else if (event.equals("ks.ha.subscription." + REFRESH)) {
             Object type = payload.get("type");
             if ("ended".equals(type)) {
@@ -424,21 +491,24 @@ public final class AgendaPlugin implements KioskPlugin {
 
     private void refresh() {
         if (!alive || host == null) return;
-        follow(saverActive || previewing);
+        // A Clock cleared of its widgets at night shows no card either, and needs no refresh; Show preview still does.
+        boolean showing = saverActive && !cleared && !held || previewing;
+        follow(showing);
         // The empty message needs an answer from every calendar, none failed, covering the window shown now. The card
         // checks the coverage again each minute, since midnight moves the window before any refresh runs.
         Agenda.Window covered = settings.emptyMessage == null ? null : covered();
         String empty = covered != null && covered.covers(ZonedDateTime.now(clock()), settings.days) ? settings.emptyMessage : null;
-        boolean wanted = (saverActive || previewing) && (!events.isEmpty() || empty != null);
+        boolean wanted = showing && (!events.isEmpty() || empty != null);
         try {
             if (wanted && (!shown || !events.equals(shownEvents) || !settings.equals(shownSettings)
-                    || !Objects.equals(empty, shownEmpty) || !Objects.equals(covered, shownCovered))) {
-                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty, covered, tap(settings)));
+                    || !Objects.equals(empty, shownEmpty) || !Objects.equals(covered, shownCovered) || !Arrays.equals(night, shownNight))) {
+                host.showOverlay(OVERLAY, spec(settings), new AgendaCard(events, settings, empty, covered, night, tap(settings)));
                 shown = true;
                 shownEvents = events;
                 shownSettings = settings;
                 shownEmpty = empty;
                 shownCovered = covered;
+                shownNight = night;
             } else if (!wanted && shown) {
                 host.hideOverlay(OVERLAY);
                 shown = false;

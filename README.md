@@ -28,9 +28,9 @@ Then open the plugin's settings and add your calendars under **Calendars**.
 ## Requirements
 
 > [!WARNING]
-> **Version 2.3.0 is the last that works with Kiosk Satellite before 2026.10.35.** From 2.4.0 the Calendar picker needs plugin choices in list rows, so older Kiosk Satellite versions refuse to install or update to it. Update Kiosk Satellite first, or stay on 2.3.0.
+> **Version 2.5.0 is the last that works with Kiosk Satellite before 2026.11.1**, and 2.3.0 the last before 2026.10.35. From 2.6.0 the card follows the Clock screensaver's Night colors, so Kiosk Satellite 2026.10.40 and later refuse to install or update to it on an older release. Update Kiosk Satellite first, or stay on 2.5.0.
 
-**Kiosk Satellite 2026.10.35 or later.** Native overlays arrived in 2026.10.13, list settings and `visibleWhen` in 2026.10.23, plugin calls to Home Assistant in 2026.10.25, and plugin choices in list rows, which the Calendar picker uses, in 2026.10.35. From 2026.10.36 the picker also shows a hint before the calendars are listed. KS 2026.10.32 added a built-in **Up next** screensaver widget that covers the rest of today. This plugin adds the coming days.
+**Kiosk Satellite 2026.11.1 or later.** Native overlays arrived in 2026.10.13, list settings and `visibleWhen` in 2026.10.23, plugin calls to Home Assistant in 2026.10.25, plugin choices in list rows, which the Calendar picker uses, in 2026.10.35, and the Clock screensaver's Night colors for plugins (`screensaver.appearance`) in 2026.11.1. From 2026.10.36 the picker also shows a hint before the calendars are listed. KS 2026.10.32 added a built-in **Up next** screensaver widget that covers the rest of today. This plugin adds the coming days.
 
 ## Tested devices
 
@@ -52,6 +52,7 @@ adb shell 'getprop ro.product.device; getprop ro.build.version.release; getprop 
 - **It shows one native overlay** while the screensaver runs and hides it when the screensaver ends.
 - **A tap wakes the kiosk, or opens something.** By default the card is visual only (`touchable(false)`), so a tap on it wakes the kiosk like a tap anywhere else. With **When tapped**, a tap on the card opens Kiosk Satellite's calendar or an app from **App Launcher > Apps** instead; taps elsewhere still wake the kiosk. Back does not close it.
 - **It stays current on its own.** The card redraws on each minute, so countdowns and finished events stay right between reads.
+- **It dims with the Clock at night.** While the Clock screensaver shows its Night colors, the card's white text, icons and every calendar's color take the night text color, on glass in the Flip style's card color or the night background, at the same **Background opacity**. White and the calendar colors come back when night ends. If the Clock's **Hide widgets and At a Glance** clears its face at night, or the screen is blanked (Night mode's black screen-off, or the screen-off timer), the card hides too and stops its refresh trigger, then reads the calendars again when the widgets or the screen come back; **Show preview** still shows it.
 
 The layout follows [Calendar Card Pro](https://github.com/alexpfau/calendar-card-pro) (see [Credits](#credits)). Each day gets a date block (Wed / 21 / OCT). Each event gets an accent bar in its calendar's color and shows:
 - its calendar's icon, if set

@@ -25,11 +25,10 @@ import me.jxl.kiosk.plugins.OverlayFactory;
 /**
  * The agenda card, laid out like Calendar Card Pro: a date block per day, then
  * each event with an accent bar in its calendar's color, its title, time and countdown. It sits over photos,
- * so it keeps white text on its own dark glass whatever the KS theme is.
+ * so it keeps white text on its own dark glass whatever the KS theme is. While the Clock shows its Night colors, its
+ * night text color stands in for the white and for every calendar color, on glass in its card or background color.
  */
 final class AgendaCard implements OverlayFactory {
-    private static final int TEXT = 0xFFFFFFFF;
-    private static final int MUTED = 0xBFFFFFFF;
     /** Width of the event column, so every countdown lines up on the right. Less when the screen has no room for it. */
     private static final int EVENTS_DP = 400;
 
@@ -39,20 +38,23 @@ final class AgendaCard implements OverlayFactory {
     final String emptyMessage;
     /** The span the answers were read for; the message shows only while it holds the window shown. */
     final Agenda.Window covered;
+    /** [text, background] of the Clock's Night colors, or null by day. */
+    final int[] night;
 
     /** Runs on a tap on the card, or null when taps go through to wake the kiosk. */
     final Runnable onTap;
 
-    AgendaCard(List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered, Runnable onTap) {
+    AgendaCard(List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered, int[] night, Runnable onTap) {
         this.events = events;
         this.settings = settings;
         this.emptyMessage = emptyMessage;
         this.covered = covered;
+        this.night = night;
         this.onTap = onTap;
     }
 
     @Override public View create(Context context, KsTheme theme) {
-        Card card = new Card(context, theme, events, settings, emptyMessage, covered);
+        Card card = new Card(context, theme, events, settings, emptyMessage, covered, night);
         if (onTap != null) card.setOnClickListener(v -> onTap.run());
         return card;
     }
@@ -69,6 +71,10 @@ final class AgendaCard implements OverlayFactory {
         private final String emptyMessage;
         private final Agenda.Window covered;
         private final float k;
+        /** Titles and dates, and the softer month, headings, countdowns and details: white by day. */
+        private final int ink, muted;
+        /** The night text color for every calendar's accent, or null by day. */
+        private final Integer nightAccent;
         /** Accent color per calendar entity. */
         private final Map<String, Integer> colors = new HashMap<>();
         /** For a calendar whose color does not parse. Read here, not in a static, so JVM tests never touch Color. */
@@ -81,7 +87,8 @@ final class AgendaCard implements OverlayFactory {
             }
         };
 
-        Card(Context context, KsTheme theme, List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered) {
+        Card(Context context, KsTheme theme, List<AgendaEvent> events, AgendaSettings settings, String emptyMessage, Agenda.Window covered,
+                int[] night) {
             super(context);
             this.theme = theme;
             this.events = events;
@@ -89,11 +96,15 @@ final class AgendaCard implements OverlayFactory {
             this.emptyMessage = emptyMessage;
             this.covered = covered;
             this.k = settings.scale / 100f;
+            ink = night == null ? 0xFFFFFFFF : night[0];
+            muted = (ink & 0x00FFFFFF) | 0xBF000000;
+            nightAccent = night == null ? null : night[0];
+            int glassColor = night == null ? 0xFF000000 : night[1];
             for (Map.Entry<String, AgendaSettings.Style> calendar : settings.calendars.entrySet()) colors.put(calendar.getKey(), parseColor(calendar.getValue().color));
             setOrientation(VERTICAL);
             if (settings.opacity > 0) {
                 GradientDrawable glass = new GradientDrawable();
-                glass.setColor(Color.argb(Math.round(settings.opacity * 2.55f), 0, 0, 0));
+                glass.setColor(Color.argb(Math.round(settings.opacity * 2.55f), Color.red(glassColor), Color.green(glassColor), Color.blue(glassColor)));
                 glass.setCornerRadius(dp(theme.radiusCard()));
                 setBackground(glass);
             }
@@ -154,13 +165,13 @@ final class AgendaCard implements OverlayFactory {
                 setVisibility(VISIBLE);
                 boolean first = true;
                 if (!settings.title.isEmpty()) {
-                    TextView title = label(settings.title.toUpperCase(Locale.getDefault()), settings.titleSize, 600, MUTED);
+                    TextView title = label(settings.title.toUpperCase(Locale.getDefault()), settings.titleSize, 600, muted);
                     title.setLetterSpacing(0.12f);
                     addView(title);
                     first = false;
                 }
                 if (days.isEmpty()) {
-                    TextView text = label(message, settings.eventSize, 500, TEXT);
+                    TextView text = label(message, settings.eventSize, 500, ink);
                     text.setMaxWidth(dp(EVENTS_DP));
                     addView(text, below(LayoutParams.WRAP_CONTENT, first ? 0 : 10));
                     return;
@@ -195,9 +206,9 @@ final class AgendaCard implements OverlayFactory {
                 date.setOrientation(VERTICAL);
                 date.setGravity(Gravity.CENTER_HORIZONTAL);
                 date.setMinimumWidth(dp(56));
-                date.addView(aligned(label(day.weekday, settings.weekdaySize, 400, TEXT)), below(LayoutParams.MATCH_PARENT, 0));
-                date.addView(aligned(label(day.dayOfMonth, settings.daySize, 500, TEXT)), below(LayoutParams.MATCH_PARENT, 2));
-                date.addView(aligned(label(day.month, settings.monthSize, 500, MUTED)), below(LayoutParams.MATCH_PARENT, 2));
+                date.addView(aligned(label(day.weekday, settings.weekdaySize, 400, ink)), below(LayoutParams.MATCH_PARENT, 0));
+                date.addView(aligned(label(day.dayOfMonth, settings.daySize, 500, ink)), below(LayoutParams.MATCH_PARENT, 2));
+                date.addView(aligned(label(day.month, settings.monthSize, 500, muted)), below(LayoutParams.MATCH_PARENT, 2));
                 row.addView(date);
             }
             LinearLayout items = new LinearLayout(getContext());
@@ -205,7 +216,7 @@ final class AgendaCard implements OverlayFactory {
             if (!settings.dateColumn) {
                 LayoutParams params = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
                 params.bottomMargin = dp(6);
-                items.addView(label(day.heading, settings.headingSize, 500, MUTED), params);
+                items.addView(label(day.heading, settings.headingSize, 500, muted), params);
             }
             boolean first = true;
             for (Agenda.Item item : day.items) {
@@ -235,7 +246,7 @@ final class AgendaCard implements OverlayFactory {
         private LinearLayout item(Agenda.Item item) {
             LinearLayout text = new Column();
             AgendaSettings.Style style = settings.calendars.get(item.calendar);
-            TextView title = label(item.title, settings.eventSize, 500, TEXT);
+            TextView title = label(item.title, settings.eventSize, 500, ink);
             title.setMaxLines(settings.titleLines);
             title.setEllipsize(TextUtils.TruncateAt.END);
             Drawable mark = style == null || style.icon.isEmpty() ? null : icon(style.icon, color(item.calendar));
@@ -269,7 +280,7 @@ final class AgendaCard implements OverlayFactory {
                 line.setOrientation(HORIZONTAL);
                 line.setGravity(Gravity.CENTER_VERTICAL);
                 line.addView(time, new LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f));
-                TextView relative = label(item.relative, settings.relativeSize, 400, MUTED);
+                TextView relative = label(item.relative, settings.relativeSize, 400, muted);
                 LayoutParams params = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);
                 params.leftMargin = dp(16);
                 line.addView(relative, params);
@@ -303,7 +314,7 @@ final class AgendaCard implements OverlayFactory {
             LinearLayout line = new LinearLayout(getContext());
             line.setOrientation(HORIZONTAL);
             line.setGravity(Gravity.CENTER_VERTICAL);
-            Drawable drawable = settings.timeIcon ? icon(icon, MUTED) : null;
+            Drawable drawable = settings.timeIcon ? icon(icon, muted) : null;
             if (drawable != null) {
                 ImageView image = new ImageView(getContext());
                 image.setImageDrawable(drawable);
@@ -312,7 +323,7 @@ final class AgendaCard implements OverlayFactory {
                 params.rightMargin = dp(6);
                 line.addView(image, params);
             }
-            TextView text = label(value, settings.detailSize, 400, MUTED);
+            TextView text = label(value, settings.detailSize, 400, muted);
             text.setSingleLine(true);
             text.setEllipsize(TextUtils.TruncateAt.END);
             line.addView(text);
@@ -353,6 +364,7 @@ final class AgendaCard implements OverlayFactory {
         }
 
         private int color(String calendar) {
+            if (nightAccent != null) return nightAccent;
             Integer color = colors.get(calendar);
             return color == null ? fallback : color;
         }
