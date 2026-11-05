@@ -114,4 +114,4 @@ For testing a local build, install `dist/screensaver-agenda-<version>.zip` with 
 
 Releases are built by GitHub Actions: publishing a GitHub release tagged `vX.Y.Z` runs `.github/workflows/build.yml`, which tests, builds and attaches the manifest, ZIP and checksum. The tag sets the version.
 
-`sdk/` and `tools/` come from the official [kiosk-satellite-plugins](https://github.com/jxlarrea/kiosk-satellite-plugins) repository (Apache-2.0), last refreshed 2026-10-21. To refresh again, copy its `sdk/` and `tools/` over these and set the test list in `tools/test.py` back to `agenda.ks.AgendaTest`.
+`sdk/` and `tools/` come from the official [kiosk-satellite-plugins](https://github.com/jxlarrea/kiosk-satellite-plugins) repository (Apache-2.0), last refreshed 2026-10-21, with `sdk/` refreshed on 2026-11-05. To refresh again, copy its `sdk/` and `tools/` over these and set the test list in `tools/test.py` back to `agenda.ks.AgendaTest`.
