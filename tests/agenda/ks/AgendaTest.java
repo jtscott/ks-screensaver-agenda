@@ -27,6 +27,7 @@ public final class AgendaTest {
         /** Turns the screensaver read away the way KS does over its request limit. */
         boolean saverBusy;
         boolean missingClass;
+        boolean showBusy;
         String status;
         boolean statusError;
         /** Every KS command after the startup screensaver read, as "command {arguments}", and the latest callback per command. */
@@ -117,6 +118,7 @@ public final class AgendaTest {
         }
         public void unsubscribe(String event) { subscriptions.remove(event); }
         public void showOverlay(String key, OverlaySpec spec, OverlayFactory factory) {
+            if (showBusy) throw new IllegalStateException("Overlay show rate exceeded");
             if (older) throw new UnsupportedOperationException("Native overlays are unavailable");
             if (missingClass) throw new NoClassDefFoundError("Failed resolution of: Lme/jxl/kiosk/plugins/OverlaySpec;");
             assert key.equals(AgendaPlugin.OVERLAY) && factory != null;
@@ -183,6 +185,7 @@ public final class AgendaTest {
     }
 
     public static void main(String[] args) {
+        eventFilters();
         // Parsing keeps good events, skips unusable ones and names untitled ones.
         Map<String, Object> noTitle = event(null, "2026-10-08T12:00:00-06:00", "2026-10-08T13:00:00-06:00");
         List<AgendaEvent> parsed = parse(event("Dentist", "2026-10-08T15:00:00-06:00", "2026-10-08T16:00:00-06:00"),
@@ -968,6 +971,168 @@ public final class AgendaTest {
 
         nowPlayingVisibility();
         System.out.println("AgendaTest passed");
+    }
+
+    static Map<String, Object> filteredCalendar(String id, Object... rules) {
+        return settings("calendar", id, "filters", Arrays.asList(rules));
+    }
+
+    static AgendaSettings.Style filteredStyle(Object... rules) {
+        return AgendaSettings.parse(settings("calendars", Collections.singletonList(filteredCalendar("calendar.family", rules))))
+            .calendars.get("calendar.family");
+    }
+
+    @SuppressWarnings("unchecked")
+    static List<AgendaEvent> cardEvents(Host host) {
+        try {
+            java.lang.reflect.Field field = AgendaCard.class.getDeclaredField("events");
+            field.setAccessible(true);
+            return (List<AgendaEvent>) field.get(host.factory);
+        } catch (ReflectiveOperationException error) {
+            throw new AssertionError(error);
+        }
+    }
+
+    static void eventFilters() {
+        // Each row has a positive match and a near miss; punctuation is always literal.
+        String[][] cases = {
+            {"Prefix", "Private:", "PRIVATE: appointment", "Not Private: appointment"},
+            {"Prefix", "private-", "private-appointment", "my-private-appointment"},
+            {"Prefix", "personal:", "Personal: appointment", "appointment personal:"},
+            {"Suffix", "-personal", "Appointment-PERSONAL", "Appointment-personalization"},
+            {"Contains", "[private]", "Appointment [PRIVATE] today", "Appointment [private-ish] today"},
+            {"Contains", "{kids}", "Trip {kids}", "Trip kids"},
+            {"Contains", ".*", "Literal .* marker", "Any other title"},
+            {"Prefix", "[", "[unclosed", "unclosed"},
+            {"Suffix", "\\", "Ends in \\", "Ends in slash /"},
+            {"Contains", "a,b|c", "a,b|c together", "only b"},
+            {"Contains", "\\E.*", "Literal \\E.* marker", "Any other title"},
+            {"Prefix", "🔒", "🔒 Appointment", "Public 🔒"},
+            {"Suffix", "🔒", "Appointment 🔒\uFE0F", "🔒 Appointment"},
+            {"Contains", "👦", "Trip 👦 today", "Trip 👧 today"},
+            {"Contains", "[👨‍👩‍👦]", "Holiday [👨‍👩‍👦]", "Holiday [👨‍👩‍👧]"},
+            {"Prefix", "👦🏽", "👦🏽 Club", "👦🏻 Club"},
+            {"Contains", "❤️", "A ❤ event", "A 💙 event"},
+            {"Contains", "♥\uFE0E", "A ♥\uFE0F event", "A ♠ event"},
+            {"Prefix", "Privé:", "PRIVE\u0301: rendezvous", "Prive: rendezvous"},
+            {"Contains", "[私用]", "予定[私用]です", "予定[仕事]です"},
+            {"Contains", "[私用]\u3000", "予定[私用]です", "予定[仕事]です"},
+            {"Prefix", "Private:\u00A0", "Private: Dentist", "Not private: Dentist"},
+            {"Prefix", "ЛИЧНОЕ:", "личное: встреча", "встреча личное:"},
+            {"Prefix", "ΟΣ", "οσ appointment", "other appointment"},
+            {"Contains", "Straße", "STRAẞE event", "Strand event"},
+            {"Prefix", "izin:", "İzin: doktor", "Doktor izin:"},
+            {"Prefix", "İzin:", "İZİN: doktor", "Doktor İZİN:"},
+            {"Contains", "kişisel", "Doktor KİŞİSEL", "Doktor"}
+        };
+        for (String[] row : cases) {
+            AgendaSettings.Style style = filteredStyle(settings("mode", row[0], "text", row[1]));
+            assert style.hides(row[2]) : Arrays.toString(row);
+            assert !style.hides(row[3]) : Arrays.toString(row);
+        }
+        Locale before = Locale.getDefault();
+        try {
+            Locale.setDefault(new Locale("tr", "TR"));
+            assert filteredStyle(settings("text", "PRIVATE:")).hides("private: appointment") : "matching must not depend on the device locale";
+        } finally { Locale.setDefault(before); }
+        assert !filteredStyle().hides("Private: visible by default");
+        assert !AgendaSettings.parse(family()).calendars.get("calendar.family").hides("Private: legacy settings");
+        assert !filteredStyle(null, 1, settings("text", ""), settings("text", " \t\n\u00A0\u3000 "), settings("text", "\uFE0F"),
+            settings("text", 42), settings("mode", "Regex", "text", "private")).hides("private") : "blank or invalid rules must not hide everything";
+        assert filteredStyle(settings("text", "private  -")).hides(AgendaEvent.parse(
+            event("private  - appointment", "2026-10-08", "2026-10-09"), ZONE, "calendar.family").summary)
+            : "filters must follow the title's whitespace cleanup";
+        AgendaSettings.Style multiple = filteredStyle(settings("text", "Private:"), settings("mode", "Suffix", "text", "-personal"),
+            settings("mode", "Contains", "text", "[kids]"));
+        assert multiple.hides("Private: dentist") && multiple.hides("Dentist-personal") && multiple.hides("Dentist [kids] tomorrow");
+        assert !multiple.hides("Dentist");
+        assert filteredStyle(settings("mode", "Contains", "text", "👦")).hides("Family dinner 👨‍👩‍👦")
+            : "a short literal marker can match within a longer emoji sequence";
+        List<Object> many = new ArrayList<>();
+        for (int i = 0; i < 17; i++) many.add(settings("text", "marker" + i + ":"));
+        AgendaSettings.Style bounded = filteredStyle(many.toArray());
+        assert bounded.filters.size() == 16 && bounded.hides("marker15: event") && !bounded.hides("marker16: event");
+        assert filteredStyle(settings("mode", "Suffix", "text", "-personal")).hides(String.join("", Collections.nCopies(600, "x")) + "-personal");
+        AgendaSettings longRule = AgendaSettings.parse(settings("calendars", Collections.singletonList(filteredCalendar("calendar.family",
+            settings("text", String.join("", Collections.nCopies(512, "x")))))));
+        assert longRule.calendars.get("calendar.family").hides(String.join("", Collections.nCopies(512, "x")) + " event");
+
+        Map<String, Object> privateAllDay = event("Private: all day", "2026-10-08", "2026-10-09");
+        Map<String, Object> privateTimed = event("Private: timed", "2026-10-08T11:00:00-06:00", "2026-10-08T12:00:00-06:00");
+        Map<String, Object> publicEvent = event("Public lunch", "2026-10-08T13:00:00-06:00", "2026-10-08T14:00:00-06:00");
+        Map<String, Object> workEvent = event("Private: work", "2026-10-08T15:00:00-06:00", "2026-10-08T16:00:00-06:00");
+        Object familyRule = filteredCalendar("calendar.family", settings("text", "Private:"));
+        Object work = settings("calendar", "calendar.work");
+        Map<String, Object> filtered = settings("calendars", Arrays.asList(familyRule, work), "maxEvents", 1);
+        Host host = new Host();
+        AgendaPlugin plugin = new AgendaPlugin();
+        plugin.clock = Clock.fixed(NOW.toInstant(), ZONE);
+        plugin.start(host, filtered);
+        host.pendingRead.onResult(true, false, null);
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", privateAllDay, privateTimed, publicEvent), null);
+        host.haCalls.remove("calendar.work").onResult(true, answer("calendar.work", workEvent), null);
+        plugin.execute("preview", Collections.emptyMap());
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", privateAllDay, privateTimed, publicEvent), null);
+        host.haCalls.remove("calendar.work").onResult(true, answer("calendar.work", workEvent), null);
+        List<AgendaEvent> visible = cardEvents(host);
+        assert visible.size() == 2 && visible.get(0).summary.equals("Public lunch") && visible.get(1).summary.equals("Private: work")
+            : "filters apply in preview and only to their own calendar";
+        List<String> displayed = rows(visible, AgendaSettings.parse(filtered));
+        assert displayed.size() == 2 && displayed.get(1).startsWith("Public lunch |") : "hidden events must not consume Maximum events";
+        assert host.status.startsWith("2 events from 2 calendars") : host.status;
+        Map<String, Object> unfiltered = settings("calendars", Arrays.asList(settings("calendar", "calendar.family"), work), "maxEvents", 1);
+        assert !AgendaSettings.parse(filtered).equals(AgendaSettings.parse(unfiltered));
+        plugin.configure(unfiltered);
+        assert cardEvents(host).size() == 4 && host.haCalls.isEmpty() : "removing a filter restores cached events without a read";
+        plugin.configure(filtered);
+        assert cardEvents(host).size() == 2 && host.haCalls.isEmpty() : "adding a filter takes effect immediately";
+
+        // A reply to a read that started with different filters uses the current rules.
+        plugin.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, settings("type", "event"));
+        plugin.configure(unfiltered);
+        plugin.configure(filtered);
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", privateAllDay, privateTimed, publicEvent), null);
+        host.haCalls.remove("calendar.work").onResult(true, answer("calendar.work", workEvent), null);
+        assert cardEvents(host).size() == 2 && host.haCalls.isEmpty();
+        int beforeRefusal = host.calls.size();
+        host.showBusy = true;
+        plugin.configure(unfiltered);
+        assert host.calls.size() == beforeRefusal : "a refused redraw that only adds events can keep the old card";
+        host.showBusy = false;
+        plugin.configure(unfiltered);
+        host.showBusy = true;
+        plugin.configure(filtered);
+        assert host.calls.get(host.calls.size() - 1).equals("hide") : "a refused redraw must remove the stale private events";
+        assert host.status.startsWith("2 events from 2 calendars") && !host.status.contains("Showing") : host.status;
+        host.showBusy = false;
+        plugin.configure(unfiltered);
+        assert host.calls.get(host.calls.size() - 1).equals("show") && cardEvents(host).size() == 4
+            : "undoing a filter after a privacy hide must restore the original card";
+        plugin.configure(filtered);
+        assert host.calls.get(host.calls.size() - 1).equals("show") && cardEvents(host).size() == 2;
+        plugin.execute("endPreview", Collections.emptyMap());
+        plugin.onEvent("ks.screensaver.state", settings("active", true));
+        assert cardEvents(host).size() == 2 : "normal screensaver uses the same filters";
+        plugin.stop();
+
+        Host empty = new Host();
+        AgendaPlugin hidden = new AgendaPlugin();
+        hidden.clock = Clock.fixed(NOW.toInstant(), ZONE);
+        Map<String, Object> one = settings("calendars", Collections.singletonList(familyRule));
+        hidden.start(empty, one);
+        empty.pendingRead.onResult(true, false, null);
+        empty.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", privateTimed), null);
+        hidden.execute("preview", Collections.emptyMap());
+        empty.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", privateTimed), null);
+        assert empty.calls.isEmpty() : "the default hides a card whose events are all excluded";
+        one.put("whenEmpty", "No upcoming events");
+        hidden.configure(one);
+        assert empty.calls.equals(Arrays.asList("show")) && cardEvents(empty).isEmpty()
+            && "No upcoming events".equals(((AgendaCard) empty.factory).emptyMessage);
+        empty.callBusy = true;
+        hidden.onEvent("ks.ha.subscription." + AgendaPlugin.REFRESH, settings("type", "event"));
+        assert empty.calls.get(empty.calls.size() - 1).equals("hide") : "filtering cannot turn a failed read into a known-empty agenda";
+        hidden.stop();
     }
 
     static void nowPlayingVisibility() {

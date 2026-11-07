@@ -181,7 +181,7 @@ public final class AgendaPlugin implements KioskPlugin {
 
     @Override public void configure(Map<String, Object> values) {
         AgendaSettings next = AgendaSettings.parse(values);
-        // A new name, icon or color only redraws; a different set of calendars or days reads again.
+        // Names, icons, colors and filters only redraw; different calendars or days read again.
         boolean refetch = !next.calendars.keySet().equals(settings.calendars.keySet()) || next.days != settings.days;
         settings = next;
         fetched.keySet().retainAll(next.calendars.keySet());
@@ -470,12 +470,14 @@ public final class AgendaPlugin implements KioskPlugin {
         return parsed;
     }
 
-    /** Only calendars still in the list count, so removing one clears its events at once. */
+    /** Keep the full answers in fetched, so editing filters can restore events without another read. */
     private void merge() {
         List<AgendaEvent> all = new ArrayList<>();
         for (String calendar : settings.calendars.keySet()) {
             List<AgendaEvent> found = fetched.get(calendar);
-            if (found != null) all.addAll(found);
+            if (found != null) for (AgendaEvent event : found) {
+                if (!settings.calendars.get(calendar).hides(event.summary)) all.add(event);
+            }
         }
         events = Collections.unmodifiableList(all);
     }
@@ -519,6 +521,12 @@ public final class AgendaPlugin implements KioskPlugin {
             host.status("This Kiosk Satellite version has no native overlays. Update the app to a release after 2026.10.12.", true);
             return;
         } catch (IllegalStateException rateLimited) {
+            // A rejected redraw must not leave newly excluded private events on the old card.
+            if (shown && !events.containsAll(shownEvents)) {
+                host.hideOverlay(OVERLAY);
+                shown = false;
+                report();
+            }
             // Over eight shows a second. The next screensaver or calendar change retries with current data.
             return;
         }

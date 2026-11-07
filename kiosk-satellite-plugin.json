@@ -3,7 +3,7 @@
   "apiVersion": 1,
   "id": "screensaver-agenda",
   "name": "Screensaver Agenda",
-  "version": "2.6.1",
+  "version": "2.7.0",
   "minAndroidSdk": 26,
   "minAppVersion": "2026.11.1",
   "entryClass": "agenda.ks.AgendaPlugin",
@@ -48,7 +48,7 @@
         "icon": "icon"
       },
       "default": [],
-      "description": "The calendars to show, each with its own name, icon and accent color. Up to 6.",
+      "description": "The calendars to show, each with its own name, icon, accent color and Hide events filters. Up to 6.",
       "fields": [
         {
           "key": "calendar",
@@ -78,6 +78,33 @@
           "title": "Color",
           "default": "#4FA3E0",
           "description": "The accent bar, name and icon color."
+        },
+        {
+          "key": "filters",
+          "type": "list",
+          "title": "Hide events",
+          "addTitle": "Add filter",
+          "default": [],
+          "maxItems": 16,
+          "row": { "title": "text", "subtitle": "mode" },
+          "description": "Hide events from this calendar when any rule matches their title, including in preview. Matches ignore case. Blank rules do nothing. Up to 16 filters.",
+          "fields": [
+            {
+              "key": "mode",
+              "type": "select",
+              "title": "Match",
+              "options": ["Prefix", "Suffix", "Contains"],
+              "default": "Prefix",
+              "description": "Prefix matches the start; Suffix matches the end. Contains finds text or a tag anywhere, such as [private] or 🔒."
+            },
+            {
+              "key": "text",
+              "type": "string",
+              "title": "Text",
+              "default": "",
+              "description": "Your marker, including punctuation or emoji: Private:, personal-, -personal, [private], 🔒 or 👦. Text is literal, not a regular expression. Spaces at the ends are ignored; repeated spaces and line breaks match a single space."
+            }
+          ]
         }
       ]
     },

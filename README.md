@@ -32,7 +32,7 @@ Then open the plugin's settings and add your calendars under **Calendars**.
 
 **Kiosk Satellite 2026.11.1 or later.** Native overlays arrived in 2026.10.13, list settings and `visibleWhen` in 2026.10.23, plugin calls to Home Assistant in 2026.10.25, plugin choices in list rows, which the Calendar picker uses, in 2026.10.35, and the Clock screensaver's Night colors for plugins (`screensaver.appearance`) in 2026.11.1. From 2026.10.36 the picker also shows a hint before the calendars are listed. KS 2026.10.32 added a built-in **Up next** screensaver widget that covers the rest of today. This plugin adds the coming days.
 
-**Hiding during Now Playing needs the `nowPlaying` appearance field.** Stock KS through 2026.11.9 does not provide it, so those versions keep showing the agenda over the player. The matching KS source and test patch is in [upstream/](upstream/README.md). The Date column width fix works without that patch. The minimum KS version remains 2026.11.1.
+**Hiding during Now Playing needs Kiosk Satellite 2026.11.10 or later.** That release added the `nowPlaying` appearance field. Earlier versions keep showing the agenda over the player. The minimum KS version remains 2026.11.1.
 
 ## Tested devices
 
@@ -69,7 +69,7 @@ All-day events come first. An overnight or multi-day event appears once, under t
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Calendars | None | Up to 6 calendars. The **Calendar** picker lists only your Home Assistant calendars, up to 200 by name, read while the settings page is open; **Refresh** reads them again. Each has a **Name** (after the time, e.g. "6:30 PM - 8:00 PM · Alice"), an **Icon** (before the title) and a **Color** for its accent bar, name and icon. An empty name or icon shows nothing |
+| Calendars | None | Up to 6 calendars. The **Calendar** picker lists only your Home Assistant calendars, up to 200 by name, read while the settings page is open; **Refresh** reads them again. Each has a **Name** (after the time, e.g. "6:30 PM - 8:00 PM · Alice"), an **Icon** (before the title), a **Color**, and a **Hide events** list of title filters. An empty name or icon shows nothing |
 | Title | Family | Empty for none |
 | Days ahead | 3 | Today included |
 | Maximum events | 5 | |
@@ -94,9 +94,30 @@ All-day events come first. An overnight or multi-day event appears once, under t
 
 **Show preview** and **Hide preview** (plugin actions) display the card without the screensaver, for placing it.
 
+### Hide selected events
+
+Open a calendar under **Calendars**, then **Hide events > Add filter**. Add up to 16 rules per calendar. An event is hidden when **any** rule matches its title; other calendars keep their own rules. Existing calendars have no filters until you add them.
+
+| Match | Text example | Hides titles such as |
+| --- | --- | --- |
+| Prefix | `Private:` | `Private: Dentist` |
+| Prefix | `personal-` | `personal-shopping` |
+| Suffix | `-personal` | `Dentist-personal` |
+| Contains | `[private]` | `Dentist [private] tomorrow` |
+| Prefix | `🔒` | `🔒 Dentist` |
+| Contains | `👦` | `School trip 👦` |
+
+Use your own words, punctuation or emoji. Matches ignore letter case; brackets and other characters are literal, not regular expressions or wildcards. For a tag, include its brackets, such as `[private]`. Spaces at the ends are ignored, repeated spaces and line breaks match a single space, and a blank rule does nothing. Text and emoji presentations of the same symbol match (for example, `❤` and `❤️`); skin tones and joined emoji stay distinct when included in the filter.
+
+A short marker can match part of a longer word or emoji sequence: Contains `👦` also matches `👨‍👩‍👦`. Use a full tag or emoji when you want a more specific rule.
+
+Filters apply to the screensaver and preview, before **Maximum events**, so hidden events do not take another event's place. Editing a filter updates the card from its cached answers without reading the calendars again. If every event is hidden, **When there are no events** decides whether to hide the card or show a message. A message still needs successful answers covering every selected calendar and **Days ahead**.
+
 ## Data and privacy
 
 The plugin talks only to your Home Assistant, through Kiosk Satellite's existing connection and account. While its settings page is open, it renders one template that lists your calendar entities for the Calendar picker. It sends `calendar.get_events` for the calendars you list and, while the screensaver or preview shows, one `time_pattern` trigger subscription for the 10-minute refresh. It makes no network connections of its own, stores nothing outside Kiosk Satellite's plugin settings, and sends no data anywhere else.
+
+**Hide events only affects this plugin's card and preview.** Home Assistant still sends the full calendar answers, which stay in memory so changing a filter can restore events. Filters do not reduce KS's 32 KB answer limit. Kiosk Satellite's own calendar, including the calendar opened by **When tapped**, and other dashboards can still show those events.
 
 ## Credits
 
@@ -116,10 +137,13 @@ python3 tools/build.py --android-platform 35
 
 For testing a local build, install `dist/screensaver-agenda-<version>.zip` with **Plugin Manager > Developer Tools > Install from ZIP**, on the kiosk or in the remote admin. Then enable it.
 
-### Checks on a device for 2.6.1
+### Checks on a device for 2.7.0
+
+- Add several **Hide events** rules to one calendar: Prefix `Private:`, Suffix `-personal`, and Contains `[private]` or an emoji. Save and reopen its editor to check that all rules remain. Matching timed and all-day events must disappear from the screensaver and preview, while another calendar with no rules keeps its events.
+- With **Maximum events** at 1, hide the earliest event and check that the next allowed event appears. Remove the filter and check that the original returns immediately. Hide every event and check both **Hide the card** and an empty-agenda message.
 
 - Turn **Date column** off with a short day heading and long event titles. Titles must use the event column's width, with **Accent bar** both on and off. Repeat with **Maximum width** at 0, 400 and 2500, and **Size** at 100% and 200%; turn Date column back on to check alignment.
-- On a KS build with the upstream patch, open Now Playing over an active screensaver. The agenda must hide and return when the player closes. With Now Playing controls on, pause playback: the agenda must stay hidden while the paused player remains visible, then return when KS closes it after its pause timeout. With controls off, pausing can close the player and restore the agenda. Music playing in the background must not hide it.
+- On KS 2026.11.10 or later, open Now Playing over an active screensaver. The agenda must hide and return when the player closes. With Now Playing controls on, pause playback: the agenda must stay hidden while the paused player remains visible, then return when KS closes it after its pause timeout. With controls off, pausing can close the player and restore the agenda. Music playing in the background must not hide it.
 - Enable the plugin while Now Playing is already open. Only **Show preview** should show the card. End the preview, close the player into a night Clock with widgets hidden, then dismiss the screensaver; the card must stay hidden throughout.
 
 Releases are built by GitHub Actions: publishing a GitHub release tagged `vX.Y.Z` runs `.github/workflows/build.yml`, which tests, builds and attaches the manifest, ZIP and checksum. The tag sets the version.

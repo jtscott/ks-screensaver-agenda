@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package agenda.ks;
 
+import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import me.jxl.kiosk.plugins.OverlaySpec;
 
 /** The plugin's settings, clamped to the manifest ranges. Immutable. */
@@ -13,18 +16,66 @@ final class AgendaSettings {
     static final String DEFAULT_COLOR = "#4FA3E0";
     /** One get_events call per calendar. KS allows 8 pending calls, and start already has the screensaver read and the refresh subscription out. */
     static final int MAX_CALENDARS = 6;
+    static final int MAX_FILTERS = 16;
 
     /** How one calendar looks on the card. An empty name or icon shows nothing for it. */
     static final class Style {
         final String color;
         final String name;
         final String icon;
+        final List<Filter> filters;
 
-        Style(String color, String name, String icon) {
+        Style(String color, String name, String icon, List<Filter> filters) {
             this.color = color;
             this.name = name;
             this.icon = icon;
+            this.filters = filters;
         }
+
+        boolean hides(String title) {
+            if (filters.isEmpty()) return false;
+            String text = matchingText(title);
+            for (Filter filter : filters) {
+                if (filter.matches(text)) return true;
+            }
+            return false;
+        }
+    }
+
+    /** Literal markers, not regular expressions: brackets, punctuation and emoji need no escaping. */
+    static final class Filter {
+        final Pattern pattern;
+
+        Filter(String mode, String text) {
+            String literal = Pattern.quote(text);
+            if ("Prefix".equals(mode)) literal = "\\A" + literal;
+            else if ("Suffix".equals(mode)) literal += "\\z";
+            pattern = Pattern.compile(literal, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        }
+
+        boolean matches(String title) {
+            return pattern.matcher(title).find();
+        }
+    }
+
+    private static String matchingText(String text) {
+        // Text/emoji presentation selectors change how a marker looks, not which marker it is.
+        return Normalizer.normalize(text, Normalizer.Form.NFC)
+            .replace("\uFE0E", "").replace("\uFE0F", "").replaceAll("[\\s\\p{Z}]+", " ").trim();
+    }
+
+    private static List<Filter> filters(Object rows) {
+        List<Filter> out = new ArrayList<>();
+        if (rows instanceof List) for (Object row : (List<?>) rows) {
+            if (!(row instanceof Map) || out.size() >= MAX_FILTERS) continue;
+            Map<?, ?> r = (Map<?, ?>) row;
+            String mode = string(r.get("mode"), "Prefix");
+            String text = matchingText(string(r.get("text"), ""));
+            if (!text.isEmpty() && ("Prefix".equals(mode) || "Suffix".equals(mode) || "Contains".equals(mode))) {
+                out.add(new Filter(mode, text));
+            }
+        }
+        return Collections.unmodifiableList(out);
     }
 
     /** Each calendar's entity and style, in list order. */
@@ -121,7 +172,7 @@ final class AgendaSettings {
             Map<?, ?> r = (Map<?, ?>) row;
             String id = string(r.get("calendar"), "");
             if (!id.isEmpty() && !out.containsKey(id)) {
-                out.put(id, new Style(string(r.get("color"), DEFAULT_COLOR), string(r.get("name"), ""), string(r.get("icon"), "")));
+                out.put(id, new Style(string(r.get("color"), DEFAULT_COLOR), string(r.get("name"), ""), string(r.get("icon"), ""), filters(r.get("filters"))));
             }
         }
         return Collections.unmodifiableMap(out);
