@@ -63,7 +63,7 @@ public final class AgendaPlugin implements KioskPlugin {
     private int appearanceRevision;
     /** [text, background] while the Clock shows its Night colors, else null. */
     private int[] night;
-    /** The Clock hides its widgets at night (Hide widgets and At a Glance), or the screen is blanked: the cards hide too. */
+    /** The Clock is cleared, the screen is blanked, or Now Playing occupies it: the card hides too. */
     private boolean cleared;
     /** Hidden while KS says whether the screensaver still runs, after a cleared Clock lost its view. */
     private boolean held;
@@ -142,9 +142,9 @@ public final class AgendaPlugin implements KioskPlugin {
     private void appearance(Map<?, ?> appearance) {
         boolean wasCleared = cleared;
         night = night(appearance);
-        // The Clock hides its widgets at night, or the screen is blanked (Night mode's black screen-off, the screen-off
-        // timer), where KS draws nothing of its own.
-        cleared = Boolean.TRUE.equals(appearance.get("widgetsHidden")) || "blank".equals(appearance.get("view"));
+        // shortcut: KS through 2026.11.9 omits nowPlaying; hide over its player once KS supplies that visibility flag.
+        cleared = Boolean.TRUE.equals(appearance.get("widgetsHidden")) || "blank".equals(appearance.get("view"))
+            || Boolean.TRUE.equals(appearance.get("nowPlaying"));
         // KS clears the view as it dismisses the screensaver and says so only after a few more steps, so a cleared face
         // losing its view would show the cards for a moment. A Dim screensaver has no view either: until KS answers
         // whether the screensaver still runs, they stay hidden.
@@ -491,7 +491,7 @@ public final class AgendaPlugin implements KioskPlugin {
 
     private void refresh() {
         if (!alive || host == null) return;
-        // A Clock cleared of its widgets at night shows no card either, and needs no refresh; Show preview still does.
+        // Hidden faces and Now Playing need no card or refresh; Show preview still does.
         boolean showing = saverActive && !cleared && !held || previewing;
         follow(showing);
         // The empty message needs an answer from every calendar, none failed, covering the window shown now. The card

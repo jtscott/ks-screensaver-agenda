@@ -234,7 +234,8 @@ final class AgendaCard implements OverlayFactory {
                 text.setPadding(0, first ? 0 : dp(8), 0, 0);
                 // One width lines the countdowns up, the way Calendar Card Pro right-aligns them.
                 event.addView(text, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
-                items.addView(event);
+                // A fill-parent row would leave the day heading to decide this column's width.
+                items.addView(event, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
                 first = false;
             }
             LayoutParams params = new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT);

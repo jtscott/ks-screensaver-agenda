@@ -32,6 +32,8 @@ Then open the plugin's settings and add your calendars under **Calendars**.
 
 **Kiosk Satellite 2026.11.1 or later.** Native overlays arrived in 2026.10.13, list settings and `visibleWhen` in 2026.10.23, plugin calls to Home Assistant in 2026.10.25, plugin choices in list rows, which the Calendar picker uses, in 2026.10.35, and the Clock screensaver's Night colors for plugins (`screensaver.appearance`) in 2026.11.1. From 2026.10.36 the picker also shows a hint before the calendars are listed. KS 2026.10.32 added a built-in **Up next** screensaver widget that covers the rest of today. This plugin adds the coming days.
 
+**Hiding during Now Playing needs the `nowPlaying` appearance field.** Stock KS through 2026.11.9 does not provide it, so those versions keep showing the agenda over the player. The matching KS source and test patch is in [upstream/](upstream/README.md). The Date column width fix works without that patch. The minimum KS version remains 2026.11.1.
+
 ## Tested devices
 
 | Model | Codename | Android | Supported firmware fingerprint | Kernel | Status |
@@ -50,6 +52,7 @@ adb shell 'getprop ro.product.device; getprop ro.build.version.release; getprop 
 - **One calendar's limits stay its own.** KS caps each answer at 32 KB. A calendar whose events (descriptions included) go over shows an error in the plugin's status naming that calendar, and the others still show.
 - **Auto-refresh needs an admin Home Assistant user.** Home Assistant only lets admin users subscribe to triggers. If Kiosk Satellite signs in as a non-admin user, the plugin's status says "Auto-refresh stopped", and the card updates only when the screensaver or preview starts or a calendar setting changes.
 - **It shows one native overlay** while the screensaver runs and hides it when the screensaver ends.
+- **It hides during Now Playing** when KS supplies the visibility flag described above, including while a paused player remains on screen or the player shares the screen. Background playback alone does not hide the agenda. Its refresh trigger stops while hidden and resumes with a calendar read when the player closes. **Show preview** still shows the card.
 - **A tap wakes the kiosk, or opens something.** By default the card is visual only (`touchable(false)`), so a tap on it wakes the kiosk like a tap anywhere else. With **When tapped**, a tap on the card opens Kiosk Satellite's calendar or an app from **App Launcher > Apps** instead; taps elsewhere still wake the kiosk. Back does not close it.
 - **It stays current on its own.** The card redraws on each minute, so countdowns and finished events stay right between reads.
 - **It dims with the Clock at night.** While the Clock screensaver shows its Night colors, the card's white text, icons and every calendar's color take the night text color, on glass in the Flip style's card color or the night background, at the same **Background opacity**. White and the calendar colors come back when night ends. If the Clock's **Hide widgets and At a Glance** clears its face at night, or the screen is blanked (Night mode's black screen-off, or the screen-off timer), the card hides too and stops its refresh trigger, then reads the calendars again when the widgets or the screen come back; **Show preview** still shows it.
@@ -112,6 +115,12 @@ python3 tools/build.py --android-platform 35
 ```
 
 For testing a local build, install `dist/screensaver-agenda-<version>.zip` with **Plugin Manager > Developer Tools > Install from ZIP**, on the kiosk or in the remote admin. Then enable it.
+
+### Checks on a device for 2.6.1
+
+- Turn **Date column** off with a short day heading and long event titles. Titles must use the event column's width, with **Accent bar** both on and off. Repeat with **Maximum width** at 0, 400 and 2500, and **Size** at 100% and 200%; turn Date column back on to check alignment.
+- On a KS build with the upstream patch, open Now Playing over an active screensaver. The agenda must hide and return when the player closes. With Now Playing controls on, pause playback: the agenda must stay hidden while the paused player remains visible, then return when KS closes it after its pause timeout. With controls off, pausing can close the player and restore the agenda. Music playing in the background must not hide it.
+- Enable the plugin while Now Playing is already open. Only **Show preview** should show the card. End the preview, close the player into a night Clock with widgets hidden, then dismiss the screensaver; the card must stay hidden throughout.
 
 Releases are built by GitHub Actions: publishing a GitHub release tagged `vX.Y.Z` runs `.github/workflows/build.yml`, which tests, builds and attaches the manifest, ZIP and checksum. The tag sets the version.
 

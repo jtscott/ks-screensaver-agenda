@@ -1,0 +1,88 @@
+--- a/app/lib/managers/plugins/plugin_host_api.dart
++++ b/app/lib/managers/plugins/plugin_host_api.dart
+@@ -1300,6 +1300,7 @@
+     return {
+       'view': view,
+       'night': night,
++      'nowPlaying': feed.nowPlaying(),
+       'textColor': night ? color(defs.screensaverClockNightColor) : null,
+       'backgroundColor': night
+           ? color(defs.screensaverClockNightBgColor)
+--- a/app/test/plugin_host_api_test.dart
++++ b/app/test/plugin_host_api_test.dart
+@@ -1217,6 +1217,7 @@
+       'backgroundColor': null,
+       'cardColor': null,
+       'widgetsHidden': false,
++      'nowPlaying': false,
+     };
+ 
+     test('reads the Night mode the clock wears', () async {
+@@ -1246,6 +1247,7 @@
+         'backgroundColor': 0xFF000000,
+         'cardColor': null,
+         'widgetsHidden': true,
++        'nowPlaying': false,
+       });
+ 
+       await settings.set(defs.screensaverClockStyle, 'flip');
+@@ -1261,6 +1263,51 @@
+         false,
+       );
+     });
++
++    test(
++      'reports Now Playing even when the day colors and view stay put',
++      () async {
++        subscribe('screensaver.appearance');
++        for (final mode in ['clock', 'photos']) {
++          view.value = mode;
++          await settle();
++          sent.clear();
++
++          nowPlaying = true;
++          bus.publish(
++            const FullscreenViewChanged(view: 'nowPlaying', shown: true),
++          );
++          await settle();
++          expect(sent.single['payload'], containsPair('view', mode));
++          expect(sent.single['payload'], containsPair('night', false));
++          expect(sent.single['payload'], containsPair('nowPlaying', true));
++          expect(
++            (await read('getScreensaverAppearance'))['data'],
++            {...day, 'view': mode, 'nowPlaying': true},
++          );
++          sent.clear();
++
++          // Duplicate visibility events are quiet.
++          bus.publish(
++            const FullscreenViewChanged(view: 'nowPlaying', shown: true),
++          );
++          await settle();
++          expect(sent, isEmpty);
++
++          nowPlaying = false;
++          bus.publish(
++            const FullscreenViewChanged(view: 'nowPlaying', shown: false),
++          );
++          await settle();
++          expect(sent.single['payload'], containsPair('nowPlaying', false));
++          expect(
++            (await read('getScreensaverAppearance'))['data'],
++            {...day, 'view': mode, 'nowPlaying': false},
++          );
++          sent.clear();
++        }
++      },
++    );
+ 
+     test('tells subscribers when the look changes, once', () async {
+       subscribe('screensaver.appearance');
+@@ -1294,6 +1341,7 @@
+       await settle();
+       expect(sent.single['payload'], {
+         ...day,
++        'nowPlaying': true,
+         'time': (sent.single['payload'] as Map)['time'],
+       });
+       sent.clear();

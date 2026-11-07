@@ -966,6 +966,70 @@ public final class AgendaTest {
         daytime.execute("preview", new HashMap<String, Object>());
         assert noNight.appearanceRead == null && ((AgendaCard) noNight.factory).night == null;
 
+        nowPlayingVisibility();
         System.out.println("AgendaTest passed");
+    }
+
+    static void nowPlayingVisibility() {
+        Host host = new Host();
+        AgendaPlugin plugin = new AgendaPlugin();
+        plugin.clock = Clock.fixed(NOW.toInstant(), ZONE);
+        Map<String, Object> appointment = event("Dentist", "2026-10-08T15:00:00-06:00", "2026-10-08T16:00:00-06:00");
+        Map<String, Object> clock = settings("view", "clock", "night", false, "widgetsHidden", false, "nowPlaying", false);
+        Map<String, Object> player = new HashMap<>(clock);
+        player.put("nowPlaying", true);
+
+        // Installing while Now Playing is already open must not flash a card or subscribe its refresh trigger.
+        plugin.start(host, family());
+        host.appearanceRead.onResult(true, player, null);
+        host.pendingRead.onResult(true, true, null);
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
+        assert host.calls.isEmpty() && host.haSubscriptions.isEmpty();
+
+        // The underlying clock view and screensaver state stay the same when the player closes.
+        plugin.onEvent("ks.screensaver.appearance", clock);
+        assert host.calls.equals(Collections.singletonList("show")) && host.haSubscriptions.contains("refresh");
+        int shown = host.calls.size();
+        host.appearanceRead.onResult(true, player, null);
+        assert host.calls.size() == shown : "an old appearance read cannot hide the restored card";
+
+        // Opening the player hides immediately, even with a calendar read outstanding. Repeated visibility events keep it hidden.
+        plugin.onEvent("ks.screensaver.appearance", player);
+        assert host.calls.get(host.calls.size() - 1).equals("hide") && host.haSubscriptions.isEmpty();
+        int hidden = host.calls.size();
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
+        plugin.onEvent("ks.screensaver.appearance", player);
+        assert host.calls.size() == hidden && host.haCalls.isEmpty();
+
+        plugin.execute("preview", Collections.<String, Object>emptyMap());
+        assert host.calls.get(host.calls.size() - 1).equals("show") && host.haSubscriptions.contains("refresh");
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
+        plugin.execute("endPreview", Collections.<String, Object>emptyMap());
+        assert host.calls.get(host.calls.size() - 1).equals("hide") && host.haSubscriptions.isEmpty();
+
+        // Ending Now Playing must not override a Clock that still hides widgets at night.
+        Map<String, Object> clearedClock = new HashMap<>(clock);
+        clearedClock.put("widgetsHidden", true);
+        clearedClock.put("night", true);
+        clearedClock.put("textColor", 0xFFFF0000);
+        hidden = host.calls.size();
+        plugin.onEvent("ks.screensaver.appearance", clearedClock);
+        assert host.calls.size() == hidden && host.haCalls.isEmpty();
+
+        // Older KS builds omit the field. They keep the existing screensaver behavior.
+        Map<String, Object> legacy = new HashMap<>(clock);
+        legacy.remove("nowPlaying");
+        plugin.onEvent("ks.screensaver.appearance", legacy);
+        assert host.calls.get(host.calls.size() - 1).equals("show");
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
+
+        // A player-only session can end through a null view, just like a cleared Clock or blank screen.
+        plugin.onEvent("ks.screensaver.appearance", player);
+        hidden = host.calls.size();
+        plugin.onEvent("ks.screensaver.appearance", settings("view", null, "night", false, "widgetsHidden", false, "nowPlaying", false));
+        assert host.calls.size() == hidden && host.haCalls.isEmpty();
+        host.pendingRead.onResult(true, false, null);
+        plugin.onEvent("ks.screensaver.state", settings("active", false));
+        assert host.calls.size() == hidden && host.haSubscriptions.isEmpty() && host.haCalls.isEmpty();
     }
 }
