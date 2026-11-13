@@ -53,6 +53,7 @@ adb shell 'getprop ro.product.device; getprop ro.build.version.release; getprop 
 - **Auto-refresh needs an admin Home Assistant user.** Home Assistant only lets admin users subscribe to triggers. If Kiosk Satellite signs in as a non-admin user, the plugin's status says "Auto-refresh stopped", and the card updates only when the screensaver or preview starts or a calendar setting changes.
 - **It shows one native overlay** while the screensaver runs and hides it when the screensaver ends.
 - **It hides during Now Playing** when KS supplies the visibility flag described above, including while a paused player remains on screen or the player shares the screen. Background playback alone does not hide the agenda. Its refresh trigger stops while hidden and resumes with a calendar read when the player closes. **Show preview** still shows the card.
+- **An alarm ringing on the Clock screensaver is not covered yet.** KS draws its Snooze and Stop buttons inside the Clock, under plugin overlays, and does not tell plugins about it. The card hides for an `alarm` field in the screensaver appearance, which the proposed KS change in `upstream/` adds; until KS ships one, place the card clear of the buttons.
 - **A tap wakes the kiosk, or opens something.** By default the card is visual only (`touchable(false)`), so a tap on it wakes the kiosk like a tap anywhere else. With **When tapped**, a tap on the card opens Kiosk Satellite's calendar or an app from **App Launcher > Apps** instead; taps elsewhere still wake the kiosk. Back does not close it.
 - **It stays current on its own.** The card redraws on each minute, so countdowns and finished events stay right between reads.
 - **It dims with the Clock at night.** While the Clock screensaver shows its Night colors, the card's white text, icons and every calendar's color take the night text color, on glass in the Flip style's card color or the night background, at the same **Background opacity**. White and the calendar colors come back when night ends. If the Clock's **Hide widgets and At a Glance** clears its face at night, or the screen is blanked (Night mode's black screen-off, or the screen-off timer), the card hides too and stops its refresh trigger, then reads the calendars again when the widgets or the screen come back; **Show preview** still shows it.
@@ -137,6 +138,12 @@ python3 tools/build.py --android-platform 35
 
 For testing a local build, install `dist/screensaver-agenda-<version>.zip` with **Plugin Manager > Developer Tools > Install from ZIP**, on the kiosk or in the remote admin. Then enable it.
 
+### Checks on a device for 2.7.1
+
+- Turn on **Launch Now Playing when music starts playing**, let the screensaver open for the music, then stop playback from Home Assistant. KS closes the player and ends the session: the card must not appear on the way back to the dashboard.
+- With a Clock screensaver running, start music so Now Playing takes over, then pause it and wait for KS to put the player away: the card must come back over the Clock. Repeat at night with **Hide widgets and At a Glance** on: it must stay hidden. Closing the player with its own button ends the screensaver instead, and the card must not appear on the way out.
+- At night with the Clock's widgets showing, dismiss the screensaver: the card must go without turning white first.
+
 ### Checks on a device for 2.7.0
 
 - Add several **Hide events** rules to one calendar: Prefix `Private:`, Suffix `-personal`, and Contains `[private]` or an emoji. Save and reopen its editor to check that all rules remain. Matching timed and all-day events must disappear from the screensaver and preview, while another calendar with no rules keeps its events.
@@ -148,4 +155,4 @@ For testing a local build, install `dist/screensaver-agenda-<version>.zip` with 
 
 Releases are built by GitHub Actions: publishing a GitHub release tagged `vX.Y.Z` runs `.github/workflows/build.yml`, which tests, builds and attaches the manifest, ZIP and checksum. The tag sets the version.
 
-`sdk/` and `tools/` come from the official [kiosk-satellite-plugins](https://github.com/jxlarrea/kiosk-satellite-plugins) repository (Apache-2.0), last refreshed 2026-10-21, with `sdk/` refreshed on 2026-11-05. To refresh again, copy its `sdk/` and `tools/` over these and set the test list in `tools/test.py` back to `agenda.ks.AgendaTest`.
+`sdk/` and `tools/` come from the official [kiosk-satellite-plugins](https://github.com/jxlarrea/kiosk-satellite-plugins) repository (Apache-2.0), last refreshed 2026-11-13. `tools/community_plugins.py` adds one change: it checks each DEX file's declared size and reads at most the 4 MB limit, so a small compressed JAR cannot expand in memory before it is refused. To refresh again, copy its `sdk/` and `tools/` over these, keep that change and its test, and set the test list in `tools/test.py` back to `agenda.ks.AgendaTest`.

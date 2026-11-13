@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import android.os.Handler;
+import android.os.Looper;
 import me.jxl.kiosk.plugins.KioskPlugin;
 import me.jxl.kiosk.plugins.OverlaySpec;
 import me.jxl.kiosk.plugins.PluginHost;
@@ -57,16 +59,19 @@ public final class AgendaPlugin implements KioskPlugin {
         + "{%- endfor -%}{{ [ns.rows, states.calendar | count] }}";
 
     private PluginHost host;
-    private boolean alive;
+    /** Volatile for the hold's retry, which checks it on the main thread; everything else runs on KS's plugin worker. */
+    private volatile boolean alive;
     private AgendaSettings settings;
     private int saverRevision;
     private int appearanceRevision;
     /** [text, background] while the Clock shows its Night colors, else null. */
     private int[] night;
-    /** The Clock is cleared, the screen is blanked, or Now Playing occupies it: the card hides too. */
+    /** The Clock is cleared, the screen is blanked, or Now Playing or an alarm occupies it: the card hides too. */
     private boolean cleared;
-    /** Hidden while KS says whether the screensaver still runs, after a cleared Clock lost its view. */
+    /** Hidden while KS says whether the screensaver still runs, after whatever cleared the card let go or the view went. */
     private boolean held;
+    /** The last appearance had a view, so a null view next means the screensaver is ending or turning Dim. */
+    private boolean viewed;
     private int[] shownNight;
     private boolean saverActive;
     private boolean previewing;
@@ -108,6 +113,12 @@ public final class AgendaPlugin implements KioskPlugin {
     private Agenda.Window shownCovered;
     /** Null for the device's clock and current zone. Tests fix the time and the zone. */
     Clock clock;
+    /** Runs a task later on the main thread. The tests run it by hand. */
+    Later later = (task, millis) -> new Handler(Looper.getMainLooper()).postDelayed(task, millis);
+
+    interface Later {
+        void run(Runnable task, long millis);
+    }
 
     @Override public void start(PluginHost host, Map<String, Object> values) {
         this.host = host;
@@ -140,30 +151,43 @@ public final class AgendaPlugin implements KioskPlugin {
     }
 
     private void appearance(Map<?, ?> appearance) {
-        boolean wasCleared = cleared;
+        boolean wasCleared = cleared, wasViewed = viewed;
+        Object view = appearance.get("view");
+        viewed = view != null;
         night = night(appearance);
-        // shortcut: KS through 2026.11.9 omits nowPlaying; hide over its player once KS supplies that visibility flag.
-        cleared = Boolean.TRUE.equals(appearance.get("widgetsHidden")) || "blank".equals(appearance.get("view"))
-            || Boolean.TRUE.equals(appearance.get("nowPlaying"));
-        // KS clears the view as it dismisses the screensaver and says so only after a few more steps, so a cleared face
-        // losing its view would show the cards for a moment. A Dim screensaver has no view either: until KS answers
-        // whether the screensaver still runs, they stay hidden.
-        held = wasCleared && !cleared && saverActive && appearance.get("view") == null;
-        if (held) {
-            final int revision = saverRevision, seen = appearanceRevision;
-            try {
-                host.executeCommand("isScreensaverActive", Collections.<String, Object>emptyMap(), (ok, data, error) -> {
-                    // A newer state or appearance event has decided already.
-                    if (!alive || revision != saverRevision || seen != appearanceRevision) return;
-                    if (ok) saverActive = Boolean.TRUE.equals(data);
-                    held = false;
-                    refresh();
-                });
-            } catch (IllegalStateException busy) {
-                held = false; // Without an answer to wait for, show as before.
-            }
-        }
+        // shortcut: KS through 2026.11.9 omits nowPlaying, and KS reports no alarm yet; hide over the player and an alarm
+        // once KS supplies those flags.
+        cleared = Boolean.TRUE.equals(appearance.get("widgetsHidden")) || "blank".equals(view)
+            || Boolean.TRUE.equals(appearance.get("nowPlaying")) || Boolean.TRUE.equals(appearance.get("alarm"));
+        // KS undoes what hid the card, and clears the view, a few steps before it says the screensaver ended: a
+        // dismissed face loses its view and its night colors, and Now Playing ending its own session drops nowPlaying
+        // while the view still shows. A Dim screensaver has no view either. So whenever the card would come back or the
+        // view goes, it stays hidden until KS answers whether the screensaver still runs; each appearance in the
+        // meantime asks again, and only the latest answer counts.
+        held = !cleared && saverActive && (wasCleared || held || (wasViewed && view == null));
+        if (held) ask(host, saverRevision, appearanceRevision, 0);
         refresh();
+    }
+
+    /**
+     * Asks KS whether the screensaver still runs, for the hold. KS refuses while the plugin's own requests fill its
+     * budget, and each of those answers or times out within 10 seconds, so retries a second apart get through. After 15
+     * the card waits for KS's next screensaver event. A retry only sends the read; its answer comes on the worker.
+     */
+    private void ask(final PluginHost host, final int revision, final int seen, final int attempt) {
+        try {
+            host.executeCommand("isScreensaverActive", Collections.<String, Object>emptyMap(), (ok, data, error) -> {
+                // A newer state event has decided, or a newer appearance asked again.
+                if (!alive || revision != saverRevision || seen != appearanceRevision) return;
+                if (ok) saverActive = Boolean.TRUE.equals(data);
+                held = false;
+                refresh();
+            });
+        } catch (IllegalStateException busy) {
+            if (attempt < 15) later.run(() -> {
+                if (alive) ask(host, revision, seen, attempt + 1);
+            }, 1_000);
+        }
     }
 
 

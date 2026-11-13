@@ -1,0 +1,45 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c251f80..7959115 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,8 +2,14 @@
+ 
+ ## Unreleased
+ 
++### Changed
++
++- `widgetsHidden` in `getScreensaverAppearance` and `screensaver.appearance` is now also true while a Black screensaver with **Hide all extras** is in sight, so an overlay that hides with KS's widgets keeps that screen fully black. Document it in the Clock Night mode table of the KS API reference.
++
+ ### Added
+ 
++- Add `alarm` to `getScreensaverAppearance` and `screensaver.appearance`: true while an alarm shows on the screensaver, whose face draws its Snooze and Stop buttons under overlays drawn over it. Older Kiosk Satellite releases leave it out. Document it in the Clock Night mode table of the KS API reference.
++
+ - Add dashboard links for plugin actions. `ks://plugin/PLUGIN_ID/COMMAND_ID` runs a declared command from a dashboard button, and each command's dialog on the plugin subpage shows its link. Parts after the command ID reach `execute` as `arguments.get("args")`, a list of up to 8 strings. Gestures, drawer shortcuts and ESPHome buttons still pass an empty map. `openKioskLink` refuses `ks://plugin` links. Document it under Dashboard links in Creating plugins (kiosk-satellite#1385).
+ 
+ - Add `publishNumber(key, name, metadata, state)` and `removeNumber(key)` to the `entities` capability. Metadata takes `min`, `max`, `step`, `unit` and `mode` (`auto`, `slider` or `box`). Home Assistant shows the number as a slider or an input box, and a change arrives as `onEvent("number.KEY", {"value": double})` within min and max. Publish the applied value to confirm it. Readings show it with its unit and the decimals of its step, and manifest groups take `number.KEY` references. Older Kiosk Satellite releases throw `UnsupportedOperationException`. Document it under Writable numbers in the entity guide (kiosk-satellite#1378).
+diff --git a/docs/ks-api.md b/docs/ks-api.md
+index 6311234..375da00 100644
+--- a/docs/ks-api.md
++++ b/docs/ks-api.md
+@@ -50,7 +50,7 @@ Except for `getBrightness`, `getVolume` and `getHaEntityState`, every read comma
+ | `isScreensaverActive` | Boolean indicating whether the screensaver is active |
+ | `getScreensaverDue` | Next idle deadline as an ISO 8601 UTC string, or null while no countdown is armed |
+ | `getScreensaverSuppressed` | Boolean. Currently true because KS owns the screen and suppresses the dashboard's separate screensaver |
+-| `getScreensaverAppearance` | `{view, night, nowPlaying, nowPlayingShared, textColor, backgroundColor, cardColor, widgetsHidden}`: whether the Clock screensaver shows its Night mode colors and what they are and whether the Now Playing player is on screen. See [Clock Night mode](#clock-night-mode) |
++| `getScreensaverAppearance` | `{view, night, nowPlaying, nowPlayingShared, alarm, textColor, backgroundColor, cardColor, widgetsHidden}`: whether the Clock screensaver shows its Night mode colors and what they are and whether the Now Playing player is on screen. See [Clock Night mode](#clock-night-mode) |
+ | `isScreenOn` | Boolean representing KS's logical screen state |
+ | `getBrightness` | Brightness from 0 to 1, or null if unavailable. `{}` reads the level controlled by the Screen light. `{"panel": true}` reads current panel brightness. `{"ceiling": true}` reads the adaptive brightness ceiling. Both flags accept booleans and cannot both be true |
+ | `getAmbientDisplay` | Boolean indicating whether KS has detected that the device leaves an ambient display lit after screen-off |
+@@ -343,10 +343,11 @@ Older KS versions reject the `voice.state` subscription with `IllegalArgumentExc
+ | `night` | True while the Clock screensaver shows its Night mode colors. Always false on any other view, under a Now Playing player that fills the screen or while no screensaver shows. A Clock screensaver in a shared layout keeps its Night mode |
+ | `nowPlaying` | True while the Now Playing player is on screen, including a paused player and a shared layout. False while music plays with no player on screen. `view` keeps naming the screensaver view under the player. Older Kiosk Satellite versions leave this field out |
+ | `nowPlayingShared` | True while the player shares the screen and the screensaver view stays in sight beside it. False while the player fills the screen or `nowPlaying` is false. A shared layout can take a moment to report after the player opens and can end on a rotation, so follow the event. Older Kiosk Satellite versions leave this field out |
++| `alarm` | True while an alarm shows on the screensaver, glowing before it rings or ringing. The Clock and Weather Mood faces draw its label and its Snooze and Stop buttons inside the face, under overlays drawn over the screensaver. Older Kiosk Satellite versions leave this field out |
+ | `textColor` | The **Night color** of the clock and its widgets, as an opaque ARGB number. Null while `night` is false |
+ | `backgroundColor` | The **Night background** behind the clock, as ARGB. A background photo stays on top of it unless **Hide background photo** is on. Null while `night` is false |
+ | `cardColor` | The **Night card color** of the flip cards, as ARGB. Null unless `night` is true and the Flip style is picked |
+-| `widgetsHidden` | True while `night` is true and **Hide widgets and At a Glance** clears the face |
++| `widgetsHidden` | True while `night` is true and **Hide widgets and At a Glance** clears the face, or while a Black screensaver with **Hide all extras** is in sight and keeps the screen fully black, so an overlay drawn over the screensaver can hide with KS's own widgets. Kiosk Satellite releases before this change report false on Black |
+ 
+ Colors arrive as numbers. Read them with `((Number) payload.get("textColor")).intValue()`. Subscribe first and then read the current state:
+ 

@@ -1,0 +1,218 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4f94377a..53f4082b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -5,6 +5,8 @@ All notable changes to Kiosk Satellite are documented here. Full release notes f
+ ## Unreleased
+ 
+ ### Fixed
++- **Plugin cards on a Black screensaver with Hide all extras.** **Hide all extras** keeps the Black screensaver fully black by hiding the small clock, the widgets and the At a Glance row, but plugins could not tell, so a plugin overlay such as Live Activities or Screensaver Agenda still drew its cards over it. `getScreensaverAppearance` and the `screensaver.appearance` event now report `widgetsHidden` as true while a Black screensaver with **Hide all extras** is in sight, the same signal the Clock's Night mode gives with **Hide widgets and At a Glance**, and send the event when the switch changes. A plugin that already hides with the widgets needs no change.
++- **Plugin cards over an alarm on the screensaver.** An alarm showing on the Clock or Weather Mood screensaver draws its label and its Snooze and Stop buttons inside the face, under plugin overlays drawn over the screensaver, so a card could cover them or take their taps. `getScreensaverAppearance` and the `screensaver.appearance` event now include `alarm`, true while an alarm shows on the screensaver, so a plugin can get out of the way as it does for Now Playing.
+ - **RAM shown as 0 free on devices with an old kernel.** A kernel older than 3.14 does not report available memory and Android then reports 0 as well. The RAM tile on the remote admin's Overview read "0.0 GB free" with a full bar, Device info showed 0 MB free with a low memory tag and the RAM available sensor in Home Assistant read 0. On these kernels the value is now estimated from the free memory, the file cache and the reclaimable kernel memory, and the low memory tag follows that estimate. Seen on a Galaxy View (SM-T670) running LineageOS 23.2.
+ 
+ ## v2026.11.19 - 2026-11-13
+diff --git a/app/lib/app_container.dart b/app/lib/app_container.dart
+index da26dcac..8b86be63 100644
+--- a/app/lib/app_container.dart
++++ b/app/lib/app_container.dart
+@@ -226,6 +226,7 @@ class AppContainer {
+         settings: settings,
+         setTint: screensaver.setPluginTint,
+         clearTint: screensaver.clearPluginTint,
++        alarm: screensaver.alarmTakeover,
+       )
+       ..camera = PluginCamera(
+         motion: motion,
+diff --git a/app/lib/managers/plugins/plugin_host_api.dart b/app/lib/managers/plugins/plugin_host_api.dart
+index be295f5d..94141aba 100644
+--- a/app/lib/managers/plugins/plugin_host_api.dart
++++ b/app/lib/managers/plugins/plugin_host_api.dart
+@@ -61,11 +61,16 @@ class PluginScreensaverFeed {
+     required this.settings,
+     this.setTint,
+     this.clearTint,
++    this.alarm,
+   });
+ 
+   final ValueListenable<String?> view;
+   final ValueListenable<bool> night;
+ 
++  /// The alarm showing on the screensaver, 'sunrise' or 'ringing', or null
++  /// for none. Null where no alarm can show.
++  final ValueListenable<String?>? alarm;
++
+   /// Tints the widgets over a plugin's own screensaver while it is on
+   /// screen, false when it is not. Null where nothing can be tinted.
+   final bool Function(String pluginId, int color)? setTint;
+@@ -101,6 +106,7 @@ class PluginHostApi {
+     voice?.level.addListener(_onVoiceLevel);
+     screensaver?.view.addListener(_onScreensaverAppearance);
+     screensaver?.night.addListener(_onScreensaverAppearance);
++    screensaver?.alarm?.addListener(_onScreensaverAppearance);
+     _screensaverAppearanceSent = jsonEncode(_screensaverAppearance());
+   }
+ 
+@@ -1308,15 +1314,18 @@ class PluginHostApi {
+   /// wears its Night mode colors and those colors as ARGB, null outside
+   /// Night mode. The card color is the flip clock's alone. A player that
+   /// fills the screen hides the face and its Night mode. Beside a shared
+-  /// player the face stays in sight and keeps it.
++  /// player the face stays in sight and keeps it. widgetsHidden also covers
++  /// a Black screensaver with Hide all extras on, which keeps the screen
++  /// fully black. alarm is true while an alarm shows on the screensaver,
++  /// whose face draws its Snooze and Stop buttons under plugin overlays.
+   Map<String, Object?>? _screensaverAppearance() {
+     final feed = screensaver;
+     if (feed == null) return null;
+     final view = feed.view.value;
+     final nowPlaying = feed.nowPlaying();
+     final shared = nowPlaying && feed.nowPlayingShared();
+-    final night =
+-        view == 'clock' && feed.night.value && (!nowPlaying || shared);
++    final inSight = !nowPlaying || shared;
++    final night = view == 'clock' && feed.night.value && inSight;
+     final s = feed.settings;
+     int color(defs.SettingDef<String> def) =>
+         _argb(s.get(def)) ?? _argb(def.defaultValue)!;
+@@ -1325,6 +1334,7 @@ class PluginHostApi {
+       'night': night,
+       'nowPlaying': nowPlaying,
+       'nowPlayingShared': shared,
++      'alarm': feed.alarm?.value != null,
+       'textColor': night ? color(defs.screensaverClockNightColor) : null,
+       'backgroundColor': night
+           ? color(defs.screensaverClockNightBgColor)
+@@ -1332,7 +1342,9 @@ class PluginHostApi {
+       'cardColor': night && s.get(defs.screensaverClockStyle) == 'flip'
+           ? color(defs.screensaverClockNightCardColor)
+           : null,
+-      'widgetsHidden': night && s.get(defs.screensaverClockNightHideWidgets),
++      'widgetsHidden':
++          night && s.get(defs.screensaverClockNightHideWidgets) ||
++          view == 'black' && inSight && s.get(defs.screensaverBlackHideExtras),
+     };
+   }
+ 
+@@ -1409,6 +1421,7 @@ class PluginHostApi {
+                 event.key == defs.screensaverClockNightBgColor.key ||
+                 event.key == defs.screensaverClockNightCardColor.key ||
+                 event.key == defs.screensaverClockNightHideWidgets.key ||
++                event.key == defs.screensaverBlackHideExtras.key ||
+                 event.key == defs.screensaverClockStyle.key))) {
+       _onScreensaverAppearance();
+       return;
+diff --git a/app/test/plugin_host_api_test.dart b/app/test/plugin_host_api_test.dart
+index 49b0d24e..8a0a3344 100644
+--- a/app/test/plugin_host_api_test.dart
++++ b/app/test/plugin_host_api_test.dart
+@@ -1180,6 +1180,7 @@ void main() {
+     late SettingsManager settings;
+     late ValueNotifier<String?> view;
+     late ValueNotifier<bool> night;
++    late ValueNotifier<String?> alarm;
+     late bool shared;
+     late bool nowPlaying;
+ 
+@@ -1190,6 +1191,7 @@ void main() {
+       await settings.init();
+       view = ValueNotifier(null);
+       night = ValueNotifier(false);
++      alarm = ValueNotifier(null);
+       nowPlaying = false;
+       shared = false;
+       api = PluginHostApi(
+@@ -1202,6 +1204,7 @@ void main() {
+           nowPlaying: () => nowPlaying,
+           nowPlayingShared: () => shared,
+           settings: settings,
++          alarm: alarm,
+         ),
+       );
+       api.open({
+@@ -1218,6 +1221,7 @@ void main() {
+       'night': false,
+       'nowPlaying': false,
+       'nowPlayingShared': false,
++      'alarm': false,
+       'textColor': null,
+       'backgroundColor': null,
+       'cardColor': null,
+@@ -1249,6 +1253,7 @@ void main() {
+         'night': true,
+         'nowPlaying': false,
+         'nowPlayingShared': false,
++        'alarm': false,
+         'textColor': 0xFF0A141E,
+         'backgroundColor': 0xFF000000,
+         'cardColor': null,
+@@ -1276,6 +1281,70 @@ void main() {
+       expect(beside['textColor'], 0xFF0A141E);
+     });
+ 
++    test('reports a bare Black screensaver as hiding its widgets', () async {
++      Future<Object?> hidden() async =>
++          ((await read('getScreensaverAppearance'))['data']
++              as Map)['widgetsHidden'];
++
++      view.value = 'black';
++      expect(await hidden(), false);
++      await settings.set(defs.screensaverBlackHideExtras, true);
++      final bare = (await read('getScreensaverAppearance'))['data'] as Map;
++      expect(bare['widgetsHidden'], true);
++      expect(bare['night'], false);
++      expect(bare['textColor'], null);
++
++      // A player that fills the screen hides the face, a shared one does not.
++      nowPlaying = true;
++      expect(await hidden(), false);
++      shared = true;
++      expect(await hidden(), true);
++      nowPlaying = false;
++      shared = false;
++
++      // The switch is the Black screensaver's alone.
++      view.value = 'clock';
++      expect(await hidden(), false);
++    });
++
++    test('reports an alarm showing on the screensaver', () async {
++      subscribe('screensaver.appearance');
++      view.value = 'clock';
++      await settle();
++      expect(sent.single['payload'], containsPair('alarm', false));
++      sent.clear();
++
++      alarm.value = 'sunrise';
++      await settle();
++      expect(sent.single['payload'], containsPair('alarm', true));
++      sent.clear();
++
++      // Sunrise turning into ringing changes nothing a plugin reads.
++      alarm.value = 'ringing';
++      await settle();
++      expect(sent, isEmpty);
++
++      alarm.value = null;
++      await settle();
++      expect(sent.single['payload'], containsPair('alarm', false));
++      expect(
++        ((await read('getScreensaverAppearance'))['data'] as Map)['alarm'],
++        false,
++      );
++    });
++
++    test('tells subscribers when Hide all extras changes on Black', () async {
++      subscribe('screensaver.appearance');
++      view.value = 'black';
++      await settle();
++      expect(sent.single['payload'], containsPair('widgetsHidden', false));
++      sent.clear();
++
++      await settings.set(defs.screensaverBlackHideExtras, true);
++      await settle();
++      expect(sent.single['payload'], containsPair('widgetsHidden', true));
++    });
++
+     test('tells subscribers when the look changes, once', () async {
+       subscribe('screensaver.appearance');
+       view.value = 'clock';

@@ -3,7 +3,7 @@
   "apiVersion": 1,
   "id": "screensaver-agenda",
   "name": "Screensaver Agenda",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "minAndroidSdk": 26,
   "minAppVersion": "2026.11.1",
   "entryClass": "agenda.ks.AgendaPlugin",

@@ -859,6 +859,8 @@ public final class AgendaTest {
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("hide");
         clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null); // the preview's read
         clearing.onEvent("ks.screensaver.appearance", settings("view", "clock", "night", false, "textColor", 0xFFFFFFFF, "widgetsHidden", false));
+        assert clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") && clearHost.haCalls.isEmpty() : "hidden until KS says it still runs";
+        clearHost.pendingRead.onResult(true, true, null);
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("show") && clearHost.haCalls.containsKey("calendar.family") : "the day reads again";
         clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
         // Dismissing a cleared Clock: KS clears the view before it says the screensaver ended. The card stays hidden, with
@@ -904,15 +906,48 @@ public final class AgendaTest {
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") && clearHost.haCalls.isEmpty() : "the older answer is ignored";
         clearHost.pendingRead.onResult(true, false, null);
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("hide");
-        // With the read turned away there is no answer to wait for, so the card shows as before.
+        // With the read turned away (the plugin's own requests fill KS's budget) the card stays hidden and asks again a
+        // second later until KS takes it.
+        List<Runnable> retries = new ArrayList<>();
+        clearing.later = (task, millis) -> {
+            assert millis == 1_000;
+            retries.add(task);
+        };
         clearing.onEvent("ks.screensaver.state", settings("active", true));
         clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
         clearing.onEvent("ks.screensaver.appearance", cleared);
         clearHost.saverBusy = true;
         clearing.onEvent("ks.screensaver.appearance", gone);
+        assert clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") && clearHost.haSubscriptions.isEmpty() && retries.size() == 1;
+        retries.remove(0).run();
+        assert retries.size() == 1 && clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") : "refused again, asks again";
         clearHost.saverBusy = false;
+        retries.remove(0).run();
+        assert retries.isEmpty() && clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") && clearHost.haCalls.isEmpty();
+        clearHost.pendingRead.onResult(true, true, null);
+        assert clearHost.calls.get(clearHost.calls.size() - 1).equals("show") : "the retried answer decides";
+        clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        // After 15 retries it stops and waits for KS's next screensaver event.
+        clearing.onEvent("ks.screensaver.appearance", cleared);
+        clearHost.saverBusy = true;
+        clearing.onEvent("ks.screensaver.appearance", gone);
+        for (int i = 0; i < 15; i++) retries.remove(0).run();
+        assert retries.isEmpty() && clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") : "bounded";
+        clearHost.saverBusy = false;
+        clearing.onEvent("ks.screensaver.state", settings("active", true));
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("show");
         clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        // A retry that a newer state event overtook may still ask, but its answer is ignored.
+        clearing.onEvent("ks.screensaver.appearance", cleared);
+        clearHost.saverBusy = true;
+        clearing.onEvent("ks.screensaver.appearance", gone);
+        clearHost.saverBusy = false;
+        clearing.onEvent("ks.screensaver.state", settings("active", true));
+        assert clearHost.calls.get(clearHost.calls.size() - 1).equals("show");
+        clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        retries.remove(0).run();
+        clearHost.pendingRead.onResult(true, false, null);
+        assert retries.isEmpty() && clearHost.calls.get(clearHost.calls.size() - 1).equals("show") : "the late answer is ignored";
 
         // The blanked screen (Night mode's black screen-off, the screen-off timer) hides the card too; leaving it for the
         // Clock shows it, and its dismissal waits like a cleared Clock's.
@@ -921,6 +956,8 @@ public final class AgendaTest {
         clearing.onEvent("ks.screensaver.appearance", blank);
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") && clearHost.haSubscriptions.isEmpty() : "no card on a blanked screen";
         clearing.onEvent("ks.screensaver.appearance", dark);
+        assert clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") && clearHost.haSubscriptions.isEmpty();
+        clearHost.pendingRead.onResult(true, true, null);
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("show") && !clearHost.haSubscriptions.isEmpty();
         clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
         clearing.onEvent("ks.screensaver.appearance", blank);
@@ -970,6 +1007,7 @@ public final class AgendaTest {
         assert noNight.appearanceRead == null && ((AgendaCard) noNight.factory).night == null;
 
         nowPlayingVisibility();
+        viewGoneAndAlarm();
         System.out.println("AgendaTest passed");
     }
 
@@ -1151,8 +1189,20 @@ public final class AgendaTest {
         host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
         assert host.calls.isEmpty() && host.haSubscriptions.isEmpty();
 
-        // The underlying clock view and screensaver state stay the same when the player closes.
+        // The underlying clock view and screensaver state stay the same when the player closes. The card waits for KS to
+        // say the screensaver still runs.
         plugin.onEvent("ks.screensaver.appearance", clock);
+        assert host.calls.isEmpty() && host.haSubscriptions.isEmpty() : "hidden until KS answers";
+        // A new look before the answer (night starting) keeps the hold and asks again; only the newer answer counts.
+        PluginHost.CommandCallback first = host.pendingRead;
+        Map<String, Object> dusk = new HashMap<>(clock);
+        dusk.put("night", true);
+        dusk.put("textColor", 0xFFFF0000);
+        plugin.onEvent("ks.screensaver.appearance", dusk);
+        assert host.calls.isEmpty() && host.pendingRead != first : "still held, asked again";
+        first.onResult(true, true, null);
+        assert host.calls.isEmpty() : "the older answer is ignored";
+        host.pendingRead.onResult(true, true, null);
         assert host.calls.equals(Collections.singletonList("show")) && host.haSubscriptions.contains("refresh");
         int shown = host.calls.size();
         host.appearanceRead.onResult(true, player, null);
@@ -1185,6 +1235,7 @@ public final class AgendaTest {
         Map<String, Object> legacy = new HashMap<>(clock);
         legacy.remove("nowPlaying");
         plugin.onEvent("ks.screensaver.appearance", legacy);
+        host.pendingRead.onResult(true, true, null);
         assert host.calls.get(host.calls.size() - 1).equals("show");
         host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
 
@@ -1196,5 +1247,86 @@ public final class AgendaTest {
         host.pendingRead.onResult(true, false, null);
         plugin.onEvent("ks.screensaver.state", settings("active", false));
         assert host.calls.size() == hidden && host.haSubscriptions.isEmpty() && host.haCalls.isEmpty();
+
+        // Playback ending a session KS started for the player: KS drops nowPlaying while the view still shows, then
+        // clears the view, then says the screensaver ended. The card never comes back on the way.
+        plugin.onEvent("ks.screensaver.state", settings("active", true));
+        plugin.onEvent("ks.screensaver.appearance", player);
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null); // the restart's read
+        hidden = host.calls.size();
+        plugin.onEvent("ks.screensaver.appearance", clock);
+        assert host.calls.size() == hidden && host.haSubscriptions.isEmpty() && host.haCalls.isEmpty() : host.calls;
+        PluginHost.CommandCallback ending = host.pendingRead;
+        plugin.onEvent("ks.screensaver.appearance", settings("view", null, "night", false, "widgetsHidden", false, "nowPlaying", false));
+        assert host.calls.size() == hidden && host.haSubscriptions.isEmpty() : "the hold outlasts a second appearance";
+        assert host.pendingRead != ending : "and asks again";
+        ending.onResult(true, true, null);
+        assert host.calls.size() == hidden && host.haSubscriptions.isEmpty() && host.haCalls.isEmpty() : "the older answer is ignored";
+        host.pendingRead.onResult(true, false, null);
+        plugin.onEvent("ks.screensaver.state", settings("active", false));
+        assert host.calls.size() == hidden && host.haSubscriptions.isEmpty() && host.haCalls.isEmpty();
+    }
+
+    static void viewGoneAndAlarm() {
+        Host host = new Host();
+        AgendaPlugin plugin = new AgendaPlugin();
+        plugin.clock = Clock.fixed(NOW.toInstant(), ZONE);
+        List<Runnable> retries = new ArrayList<>();
+        plugin.later = (task, millis) -> retries.add(task);
+        Map<String, Object> appointment = event("Dentist", "2026-10-08T15:00:00-06:00", "2026-10-08T16:00:00-06:00");
+        Map<String, Object> dark = settings("view", "clock", "night", true, "textColor", 0xFFFF0000, "backgroundColor", 0xFF000000,
+            "widgetsHidden", false, "nowPlaying", false);
+        Map<String, Object> gone = settings("view", null, "night", false, "widgetsHidden", false, "nowPlaying", false);
+        plugin.start(host, family());
+        host.appearanceRead.onResult(true, dark, null);
+        host.pendingRead.onResult(true, true, null);
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null); // start's read
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null); // the show's
+        assert host.calls.get(host.calls.size() - 1).equals("show") && ((AgendaCard) host.factory).night != null && host.haCalls.isEmpty();
+
+        // Dismissing a night Clock that shows its widgets: the view goes first, with the night colors. The card hides
+        // then, with no redraw in day colors, and stays hidden through the end.
+        int drawn = host.calls.size();
+        plugin.onEvent("ks.screensaver.appearance", gone);
+        assert host.calls.size() == drawn + 1 && host.calls.get(drawn).equals("hide") && host.haSubscriptions.isEmpty() : host.calls;
+        host.pendingRead.onResult(true, false, null);
+        plugin.onEvent("ks.screensaver.state", settings("active", false));
+        assert host.calls.size() == drawn + 1 && host.haCalls.isEmpty() : host.calls + " " + host.haCalls.keySet();
+
+        // A schedule turning the Clock into Dim drops the view too: KS says the screensaver still runs, so it comes back.
+        plugin.onEvent("ks.screensaver.state", settings("active", true));
+        plugin.onEvent("ks.screensaver.appearance", dark);
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
+        plugin.onEvent("ks.screensaver.appearance", gone);
+        assert host.calls.get(host.calls.size() - 1).equals("hide");
+        host.pendingRead.onResult(true, true, null);
+        assert host.calls.get(host.calls.size() - 1).equals("show") && ((AgendaCard) host.factory).night == null : "Dim has no night colors";
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
+        int shown = host.calls.size();
+        plugin.onEvent("ks.screensaver.appearance", gone);
+        assert host.calls.size() == shown : "no view to lose";
+
+        // An alarm showing on the screensaver hides it, and it comes back once KS says it still runs.
+        Map<String, Object> clock = settings("view", "clock", "night", false, "widgetsHidden", false, "nowPlaying", false);
+        Map<String, Object> alarm = new HashMap<>(clock);
+        alarm.put("alarm", true);
+        plugin.onEvent("ks.screensaver.appearance", clock);
+        plugin.onEvent("ks.screensaver.appearance", alarm);
+        assert host.calls.get(host.calls.size() - 1).equals("hide") && host.haSubscriptions.isEmpty();
+        plugin.onEvent("ks.screensaver.appearance", clock);
+        assert host.calls.get(host.calls.size() - 1).equals("hide");
+        host.pendingRead.onResult(true, true, null);
+        assert host.calls.get(host.calls.size() - 1).equals("show") && host.haSubscriptions.contains("refresh");
+        host.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", appointment), null);
+
+        // A retry waiting when the plugin stops sends nothing.
+        plugin.onEvent("ks.screensaver.appearance", alarm);
+        host.saverBusy = true;
+        plugin.onEvent("ks.screensaver.appearance", clock);
+        host.saverBusy = false;
+        PluginHost.CommandCallback before = host.pendingRead;
+        plugin.stop();
+        retries.remove(0).run();
+        assert host.pendingRead == before && retries.isEmpty() : "no read after stop";
     }
 }
