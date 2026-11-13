@@ -171,8 +171,8 @@ public final class AgendaPlugin implements KioskPlugin {
 
     /**
      * Asks KS whether the screensaver still runs, for the hold. KS refuses while the plugin's own requests fill its
-     * budget, and each of those answers or times out within 10 seconds, so retries a second apart get through. After 15
-     * the card waits for KS's next screensaver event. A retry only sends the read; its answer comes on the worker.
+     * budget. Each of those answers or times out within 30 seconds (Home Assistant calls; KS commands within 10) and
+     * frees its slot once its callback has run, so retries a second apart get through. After 40 the card waits for KS's next screensaver event. A retry only sends the read; its answer comes on the worker.
      */
     private void ask(final PluginHost host, final int revision, final int seen, final int attempt) {
         try {
@@ -184,7 +184,7 @@ public final class AgendaPlugin implements KioskPlugin {
                 refresh();
             });
         } catch (IllegalStateException busy) {
-            if (attempt < 15) later.run(() -> {
+            if (attempt < 40) later.run(() -> {
                 if (alive) ask(host, revision, seen, attempt + 1);
             }, 1_000);
         }

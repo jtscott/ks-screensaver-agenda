@@ -927,11 +927,23 @@ public final class AgendaTest {
         clearHost.pendingRead.onResult(true, true, null);
         assert clearHost.calls.get(clearHost.calls.size() - 1).equals("show") : "the retried answer decides";
         clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
-        // After 15 retries it stops and waits for KS's next screensaver event.
+        // Home Assistant calls hold the budget for up to 30 seconds: a slot freeing after 30 refusals still gets through,
+        // with no screensaver event to help.
         clearing.onEvent("ks.screensaver.appearance", cleared);
         clearHost.saverBusy = true;
         clearing.onEvent("ks.screensaver.appearance", gone);
-        for (int i = 0; i < 15; i++) retries.remove(0).run();
+        for (int i = 0; i < 30; i++) retries.remove(0).run();
+        clearHost.saverBusy = false;
+        retries.remove(0).run();
+        assert retries.isEmpty() && clearHost.calls.get(clearHost.calls.size() - 1).equals("hide");
+        clearHost.pendingRead.onResult(true, true, null);
+        assert clearHost.calls.get(clearHost.calls.size() - 1).equals("show") : "recovers on its own";
+        clearHost.haCalls.remove("calendar.family").onResult(true, answer("calendar.family", dentist), null);
+        // After 40 retries it stops and waits for KS's next screensaver event.
+        clearing.onEvent("ks.screensaver.appearance", cleared);
+        clearHost.saverBusy = true;
+        clearing.onEvent("ks.screensaver.appearance", gone);
+        for (int i = 0; i < 40; i++) retries.remove(0).run();
         assert retries.isEmpty() && clearHost.calls.get(clearHost.calls.size() - 1).equals("hide") : "bounded";
         clearHost.saverBusy = false;
         clearing.onEvent("ks.screensaver.state", settings("active", true));

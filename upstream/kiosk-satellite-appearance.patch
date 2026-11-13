@@ -24,7 +24,7 @@ index da26dcac..8b86be63 100644
        ..camera = PluginCamera(
          motion: motion,
 diff --git a/app/lib/managers/plugins/plugin_host_api.dart b/app/lib/managers/plugins/plugin_host_api.dart
-index be295f5d..94141aba 100644
+index be295f5d..ecdab70f 100644
 --- a/app/lib/managers/plugins/plugin_host_api.dart
 +++ b/app/lib/managers/plugins/plugin_host_api.dart
 @@ -61,11 +61,16 @@ class PluginScreensaverFeed {
@@ -101,6 +101,14 @@ index be295f5d..94141aba 100644
                  event.key == defs.screensaverClockStyle.key))) {
        _onScreensaverAppearance();
        return;
+@@ -1553,6 +1566,7 @@ class PluginHostApi {
+     voice?.level.removeListener(_onVoiceLevel);
+     screensaver?.view.removeListener(_onScreensaverAppearance);
+     screensaver?.night.removeListener(_onScreensaverAppearance);
++    screensaver?.alarm?.removeListener(_onScreensaverAppearance);
+     await _events.cancel();
+   }
+ 
 diff --git a/app/test/plugin_host_api_test.dart b/app/test/plugin_host_api_test.dart
 index 49b0d24e..8a0a3344 100644
 --- a/app/test/plugin_host_api_test.dart
